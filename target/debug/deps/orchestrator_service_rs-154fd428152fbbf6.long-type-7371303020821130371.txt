@@ -1,2 +1,0 @@
-std::sync::Arc<OrchestratorServer>: OrchestratorService
-OrchestratorServiceServer<std::sync::Arc<OrchestratorServer>>

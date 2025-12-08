@@ -1,9 +1,0 @@
-C:\Users\JAMEYMILNER\AppData\Local\system-build-rs\target\debug\deps\pulldown_cmark_to_cmark-bc6f0ec824019287.d: C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\lib.rs C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\source_range.rs C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\text_modifications.rs
-
-C:\Users\JAMEYMILNER\AppData\Local\system-build-rs\target\debug\deps\libpulldown_cmark_to_cmark-bc6f0ec824019287.rlib: C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\lib.rs C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\source_range.rs C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\text_modifications.rs
-
-C:\Users\JAMEYMILNER\AppData\Local\system-build-rs\target\debug\deps\libpulldown_cmark_to_cmark-bc6f0ec824019287.rmeta: C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\lib.rs C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\source_range.rs C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\text_modifications.rs
-
-C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\lib.rs:
-C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\source_range.rs:
-C:\Users\JAMEYMILNER\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\pulldown-cmark-to-cmark-21.1.0\src\text_modifications.rs:

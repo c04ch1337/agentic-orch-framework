@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["manual"],"struct":["Attributes","CodeGenBuilder"],"trait":["Method","Service"]};

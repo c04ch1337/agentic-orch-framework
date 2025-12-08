@@ -1,1 +1,0 @@
-{"rustc":2490638836439573635,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[7160512178045804140,"build_script_build",false,11756517517376136223]],"local":[{"RerunIfChanged":{"output":"debug\\build\\orchestrator-service-rs-d8745900651a0026\\output","paths":["../.proto/agi_core.proto"]}}],"rustflags":[],"config":0,"compile_kind":0}

@@ -1,1 +1,0 @@
-{"rustc":2490638836439573635,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[11645267970127042503,"build_script_build",false,10102536482468525045]],"local":[{"RerunIfChanged":{"output":"debug\\build\\mind-kb-rs-d00ddd259e15514e\\output","paths":["../.proto/agi_core.proto"]}}],"rustflags":[],"config":0,"compile_kind":0}

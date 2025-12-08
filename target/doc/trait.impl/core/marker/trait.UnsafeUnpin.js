@@ -1,9 +1,0 @@
-(function() {
-    var implementors = Object.fromEntries([["tonic_build",[["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/manual/struct.Builder.html\" title=\"struct tonic_build::manual::Builder\">Builder</a>",1,["tonic_build::manual::Builder"]],["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/manual/struct.Method.html\" title=\"struct tonic_build::manual::Method\">Method</a>",1,["tonic_build::manual::Method"]],["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/manual/struct.MethodBuilder.html\" title=\"struct tonic_build::manual::MethodBuilder\">MethodBuilder</a>",1,["tonic_build::manual::MethodBuilder"]],["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/manual/struct.Service.html\" title=\"struct tonic_build::manual::Service\">Service</a>",1,["tonic_build::manual::Service"]],["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/manual/struct.ServiceBuilder.html\" title=\"struct tonic_build::manual::ServiceBuilder\">ServiceBuilder</a>",1,["tonic_build::manual::ServiceBuilder"]],["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/struct.Attributes.html\" title=\"struct tonic_build::Attributes\">Attributes</a>",1,["tonic_build::Attributes"]],["impl UnsafeUnpin for <a class=\"struct\" href=\"tonic_build/struct.CodeGenBuilder.html\" title=\"struct tonic_build::CodeGenBuilder\">CodeGenBuilder</a>",1,["tonic_build::code_gen::CodeGenBuilder"]]]]]);
-    if (window.register_implementors) {
-        window.register_implementors(implementors);
-    } else {
-        window.pending_implementors = implementors;
-    }
-})()
-//{"start":57,"fragment_lengths":[1371]}
