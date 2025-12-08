@@ -5,63 +5,122 @@ services:
   orchestrator:
     build:
       context: .
-      dockerfile: ./orchestrator-service-rs/Dockerfile.dev # Placeholder - Create this Dockerfile later
+      dockerfile: ./orchestrator-service-rs/Dockerfile.dev
     image: orchestrator-service-rs:latest
+    container_name: orchestrator-service
     ports:
-      - "50051:50051" # Example port
+      - "50051:50051"
+    environment:
+      - DATA_ROUTER_ADDR=http://data-router:50052
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
+    networks:
+      - agi_network
+    restart: unless-stopped
+
+  data-router:
+    build:
+      context: .
+      dockerfile: ./data-router-rs/Dockerfile.dev
+    image: data-router-rs:latest
+    container_name: data-router-service
+    ports:
+      - "50052:50052"
+    environment:
+      - LLM_SERVICE_ADDR=http://llm-service:50053
+      - TOOLS_SERVICE_ADDR=http://tools-service:50054
+      - SAFETY_SERVICE_ADDR=http://safety-service:50055
+      - LOGGING_SERVICE_ADDR=http://logging-service:50056
+      - MIND_KB_ADDR=http://mind-kb:50057
+      - BODY_KB_ADDR=http://body-kb:50058
+      - HEART_KB_ADDR=http://heart-kb:50059
+      - SOCIAL_KB_ADDR=http://social-kb:50060
+      - SOUL_KB_ADDR=http://soul-kb:50061
+      - RUST_LOG=info
+    volumes:
+      - .:/app/system-build-rs
+    networks:
+      - agi_network
+    depends_on:
+      - llm-service
+      - tools-service
+      - safety-service
+      - logging-service
+      - mind-kb
+      - body-kb
+      - heart-kb
+      - social-kb
+      - soul-kb
+    restart: unless-stopped
 
   llm-service:
     build:
       context: .
       dockerfile: ./llm-service-rs/Dockerfile.dev
     image: llm-service-rs:latest
+    container_name: llm-service
+    ports:
+      - "50053:50053"
+    environment:
+      - LLM_SERVICE_ADDR=0.0.0.0:50053
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - orchestrator
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   tools-service:
     build:
       context: .
       dockerfile: ./tools-service-rs/Dockerfile.dev
     image: tools-service-rs:latest
+    container_name: tools-service
+    ports:
+      - "50054:50054"
+    environment:
+      - TOOLS_SERVICE_ADDR=0.0.0.0:50054
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - orchestrator
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   safety-service:
     build:
       context: .
       dockerfile: ./safety-service-rs/Dockerfile.dev
     image: safety-service-rs:latest
+    container_name: safety-service
+    ports:
+      - "50055:50055"
+    environment:
+      - SAFETY_SERVICE_ADDR=0.0.0.0:50055
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - orchestrator
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   logging-service:
     build:
       context: .
       dockerfile: ./logging-service-rs/Dockerfile.dev
     image: logging-service-rs:latest
+    container_name: logging-service
+    ports:
+      - "50056:50056"
+    environment:
+      - LOGGING_SERVICE_ADDR=0.0.0.0:50056
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - orchestrator
-
-  # --- Router ---
-  data-router:
-    build:
-      context: .
-      dockerfile: ./data-router-rs/Dockerfile.dev
-    image: data-router-rs:latest
-    volumes:
-      - .:/app/system-build-rs
-    depends_on:
-      - orchestrator
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   # --- Knowledge Bases ---
   mind-kb:
@@ -69,52 +128,87 @@ services:
       context: .
       dockerfile: ./mind-kb-rs/Dockerfile.dev
     image: mind-kb-rs:latest
+    container_name: mind-kb
+    ports:
+      - "50057:50057"
+    environment:
+      - MIND_KB_ADDR=0.0.0.0:50057
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - data-router
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   body-kb:
     build:
       context: .
       dockerfile: ./body-kb-rs/Dockerfile.dev
     image: body-kb-rs:latest
+    container_name: body-kb
+    ports:
+      - "50058:50058"
+    environment:
+      - BODY_KB_ADDR=0.0.0.0:50058
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - data-router
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   heart-kb:
     build:
       context: .
       dockerfile: ./heart-kb-rs/Dockerfile.dev
     image: heart-kb-rs:latest
+    container_name: heart-kb
+    ports:
+      - "50059:50059"
+    environment:
+      - HEART_KB_ADDR=0.0.0.0:50059
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - data-router
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   social-kb:
     build:
       context: .
       dockerfile: ./social-kb-rs/Dockerfile.dev
     image: social-kb-rs:latest
+    container_name: social-kb
+    ports:
+      - "50060:50060"
+    environment:
+      - SOCIAL_KB_ADDR=0.0.0.0:50060
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - data-router
+    networks:
+      - agi_network
+    restart: unless-stopped
 
   soul-kb:
     build:
       context: .
       dockerfile: ./soul-kb-rs/Dockerfile.dev
     image: soul-kb-rs:latest
+    container_name: soul-kb
+    ports:
+      - "50061:50061"
+    environment:
+      - SOUL_KB_ADDR=0.0.0.0:50061
+      - RUST_LOG=info
     volumes:
       - .:/app/system-build-rs
-    depends_on:
-      - data-router
+    networks:
+      - agi_network
+    restart: unless-stopped
 
 networks:
-  default:
+  agi_network:
     name: agi_network
     driver: bridge
