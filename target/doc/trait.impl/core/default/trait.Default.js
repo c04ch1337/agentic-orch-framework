@@ -1,0 +1,9 @@
+(function() {
+    var implementors = Object.fromEntries([["tonic_build",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.91.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"tonic_build/manual/struct.Builder.html\" title=\"struct tonic_build::manual::Builder\">Builder</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.91.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"tonic_build/manual/struct.MethodBuilder.html\" title=\"struct tonic_build::manual::MethodBuilder\">MethodBuilder</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.91.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"tonic_build/manual/struct.ServiceBuilder.html\" title=\"struct tonic_build::manual::ServiceBuilder\">ServiceBuilder</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.91.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"tonic_build/struct.Attributes.html\" title=\"struct tonic_build::Attributes\">Attributes</a>"],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.91.1/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"tonic_build/struct.CodeGenBuilder.html\" title=\"struct tonic_build::CodeGenBuilder\">CodeGenBuilder</a>"]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":57,"fragment_lengths":[1471]}

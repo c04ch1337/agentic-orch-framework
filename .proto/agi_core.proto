@@ -1,0 +1,245 @@
+syntax = "proto3";
+
+package agi_core;
+
+// Common Message Types - Defined first before use in services
+message Request {
+  string id = 1;
+  string service = 2;
+  string method = 3;
+  bytes payload = 4;
+  map<string, string> metadata = 5;
+}
+
+message Response {
+  string id = 1;
+  int32 status_code = 2;
+  bytes payload = 3;
+  string error = 4;
+  map<string, string> metadata = 5;
+}
+
+message RouteRequest {
+  string target_service = 1;
+  Request request = 2;
+}
+
+message RouteResponse {
+  Response response = 1;
+  string routed_to = 2;
+}
+
+message ServiceQuery {
+  string service_name = 1;
+}
+
+message ServiceEndpoint {
+  string address = 1;
+  int32 port = 2;
+}
+
+message GenerateRequest {
+  string prompt = 1;
+  map<string, string> parameters = 2;
+}
+
+message GenerateResponse {
+  string text = 1;
+  map<string, string> metadata = 2;
+}
+
+message LLMProcessRequest {
+  string text = 1;
+  string operation = 2;
+}
+
+message LLMProcessResponse {
+  string result = 1;
+  map<string, string> metadata = 2;
+}
+
+message ToolRequest {
+  string tool_name = 1;
+  map<string, string> parameters = 2;
+}
+
+message ToolResponse {
+  bool success = 1;
+  string result = 2;
+  string error = 3;
+}
+
+message ListToolsRequest {
+  string category = 1;
+}
+
+message ListToolsResponse {
+  repeated string tools = 1;
+}
+
+message ValidationRequest {
+  Request request = 1;
+  map<string, string> context = 2;
+}
+
+message ValidationResponse {
+  bool approved = 1;
+  string reason = 2;
+  int32 risk_level = 3;
+}
+
+message ThreatCheck {
+  string content = 1;
+  string source = 2;
+}
+
+message ThreatResponse {
+  bool is_threat = 1;
+  string threat_type = 2;
+  float confidence = 3;
+}
+
+message LogEntry {
+  string level = 1;
+  string message = 2;
+  string service = 3;
+  map<string, string> metadata = 4;
+  int64 timestamp = 5;
+}
+
+message LogResponse {
+  bool success = 1;
+  string log_id = 2;
+}
+
+message MetricsRequest {
+  string service = 1;
+  string metric_name = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+}
+
+message MetricsResponse {
+  map<string, double> metrics = 1;
+}
+
+message StoreRequest {
+  string key = 1;
+  bytes value = 2;
+  map<string, string> metadata = 3;
+}
+
+message StoreResponse {
+  bool success = 1;
+  string stored_id = 2;
+}
+
+message RetrieveRequest {
+  string key = 1;
+  map<string, string> filters = 2;
+}
+
+message RetrieveResponse {
+  bytes value = 1;
+  map<string, string> metadata = 2;
+  bool found = 3;
+}
+
+message QueryRequest {
+  string query = 1;
+  map<string, string> parameters = 2;
+  int32 limit = 3;
+}
+
+message QueryResponse {
+  repeated bytes results = 1;
+  int32 count = 2;
+  map<string, string> metadata = 3;
+}
+
+// Service Definitions
+// Orchestrator Service - Primary entry point for high-level coordination and planning
+service OrchestratorService {
+  rpc ProcessRequest (Request) returns (Response);
+  rpc PlanAndExecute (Request) returns (Response);
+  rpc Route (RouteRequest) returns (RouteResponse);
+}
+
+// Data Router Service - Primary service-to-service communication router
+service DataRouterService {
+  rpc Route (RouteRequest) returns (RouteResponse); // Main routing method
+  rpc GetServiceEndpoint (ServiceQuery) returns (ServiceEndpoint); // Service discovery
+}
+
+// LLM Service - Natural language processing and generation
+service LLMService {
+  rpc GenerateText (GenerateRequest) returns (GenerateResponse);
+  rpc Generate (GenerateRequest) returns (GenerateResponse); // Alias for GenerateText
+  rpc Process (LLMProcessRequest) returns (LLMProcessResponse);
+  rpc EmbedText (LLMProcessRequest) returns (LLMProcessResponse); // Text embedding for vector search
+}
+
+// Tools Service - External API access and tool execution
+service ToolsService {
+  rpc ExecuteTool (ToolRequest) returns (ToolResponse);
+  rpc ListTools (ListToolsRequest) returns (ListToolsResponse);
+}
+
+// Safety Service - Ethical guidelines, policy enforcement, and threat detection
+service SafetyService {
+  rpc CheckPolicy (ValidationRequest) returns (ValidationResponse); // Policy validation
+  rpc ValidateRequest (ValidationRequest) returns (ValidationResponse); // Request validation
+  rpc CheckThreat (ThreatCheck) returns (ThreatResponse); // Threat detection
+}
+
+// Logging Service - Centralized telemetry
+service LoggingService {
+  rpc Log (LogEntry) returns (LogResponse);
+  rpc GetMetrics (MetricsRequest) returns (MetricsResponse);
+}
+
+// Knowledge Base Services - All KBs implement the same interface for consistency
+// Mind KB - Short-term, episodic, and declarative memory
+service MindKBService {
+  rpc QueryKB (QueryRequest) returns (QueryResponse); // Query knowledge base
+  rpc StoreFact (StoreRequest) returns (StoreResponse); // Store a fact
+  rpc Store (StoreRequest) returns (StoreResponse); // Alias for StoreFact
+  rpc Retrieve (RetrieveRequest) returns (RetrieveResponse); // Retrieve by key
+  rpc Query (QueryRequest) returns (QueryResponse); // Alias for QueryKB
+}
+
+// Body KB - Physical/digital embodiment state (sensors/actuators)
+service BodyKBService {
+  rpc QueryKB (QueryRequest) returns (QueryResponse);
+  rpc StoreFact (StoreRequest) returns (StoreResponse);
+  rpc Store (StoreRequest) returns (StoreResponse);
+  rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
+  rpc Query (QueryRequest) returns (QueryResponse);
+}
+
+// Heart KB - Personality, emotional state, and motivational drives
+service HeartKBService {
+  rpc QueryKB (QueryRequest) returns (QueryResponse);
+  rpc StoreFact (StoreRequest) returns (StoreResponse);
+  rpc Store (StoreRequest) returns (StoreResponse);
+  rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
+  rpc Query (QueryRequest) returns (QueryResponse);
+}
+
+// Social KB - Social dynamics, relationship history, and social protocols
+service SocialKBService {
+  rpc QueryKB (QueryRequest) returns (QueryResponse);
+  rpc StoreFact (StoreRequest) returns (StoreResponse);
+  rpc Store (StoreRequest) returns (StoreResponse);
+  rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
+  rpc Query (QueryRequest) returns (QueryResponse);
+}
+
+// Soul KB - Core values, identity, and long-term aspirational goals
+service SoulKBService {
+  rpc QueryKB (QueryRequest) returns (QueryResponse);
+  rpc StoreFact (StoreRequest) returns (StoreResponse);
+  rpc Store (StoreRequest) returns (StoreResponse);
+  rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
+  rpc Query (QueryRequest) returns (QueryResponse);
+}

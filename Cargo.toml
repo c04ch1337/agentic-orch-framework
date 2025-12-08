@@ -1,0 +1,21 @@
+# Cargo.toml - Master Workspace File
+[workspace]
+members = [
+    "orchestrator-service-rs",
+    "llm-service-rs",
+    "tools-service-rs",
+    "safety-service-rs",
+    "logging-service-rs",
+    "data-router-rs",
+    "mind-kb-rs",
+    "body-kb-rs",
+    "heart-kb-rs",
+    "social-kb-rs",
+    "soul-kb-rs",
+]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

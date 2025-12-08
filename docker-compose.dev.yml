@@ -1,0 +1,120 @@
+version: '3.9'
+
+services:
+  # --- Core Services ---
+  orchestrator:
+    build:
+      context: .
+      dockerfile: ./orchestrator-service-rs/Dockerfile.dev # Placeholder - Create this Dockerfile later
+    image: orchestrator-service-rs:latest
+    ports:
+      - "50051:50051" # Example port
+    volumes:
+      - .:/app/system-build-rs
+
+  llm-service:
+    build:
+      context: .
+      dockerfile: ./llm-service-rs/Dockerfile.dev
+    image: llm-service-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - orchestrator
+
+  tools-service:
+    build:
+      context: .
+      dockerfile: ./tools-service-rs/Dockerfile.dev
+    image: tools-service-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - orchestrator
+
+  safety-service:
+    build:
+      context: .
+      dockerfile: ./safety-service-rs/Dockerfile.dev
+    image: safety-service-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - orchestrator
+
+  logging-service:
+    build:
+      context: .
+      dockerfile: ./logging-service-rs/Dockerfile.dev
+    image: logging-service-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - orchestrator
+
+  # --- Router ---
+  data-router:
+    build:
+      context: .
+      dockerfile: ./data-router-rs/Dockerfile.dev
+    image: data-router-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - orchestrator
+
+  # --- Knowledge Bases ---
+  mind-kb:
+    build:
+      context: .
+      dockerfile: ./mind-kb-rs/Dockerfile.dev
+    image: mind-kb-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - data-router
+
+  body-kb:
+    build:
+      context: .
+      dockerfile: ./body-kb-rs/Dockerfile.dev
+    image: body-kb-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - data-router
+
+  heart-kb:
+    build:
+      context: .
+      dockerfile: ./heart-kb-rs/Dockerfile.dev
+    image: heart-kb-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - data-router
+
+  social-kb:
+    build:
+      context: .
+      dockerfile: ./social-kb-rs/Dockerfile.dev
+    image: social-kb-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - data-router
+
+  soul-kb:
+    build:
+      context: .
+      dockerfile: ./soul-kb-rs/Dockerfile.dev
+    image: soul-kb-rs:latest
+    volumes:
+      - .:/app/system-build-rs
+    depends_on:
+      - data-router
+
+networks:
+  default:
+    name: agi_network
+    driver: bridge

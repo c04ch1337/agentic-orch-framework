@@ -1,0 +1,1 @@
+{"rustc":2490638836439573635,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[11353988093122293032,"build_script_build",false,11772415856581133388]],"local":[{"RerunIfChanged":{"output":"debug\\build\\safety-service-rs-55e2db21daad11ab\\output","paths":["../.proto/agi_core.proto"]}}],"rustflags":[],"config":0,"compile_kind":0}

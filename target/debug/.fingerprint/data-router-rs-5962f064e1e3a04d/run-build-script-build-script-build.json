@@ -1,0 +1,1 @@
+{"rustc":2490638836439573635,"features":"","declared_features":"","target":0,"profile":0,"path":0,"deps":[[4708585108889925996,"build_script_build",false,4715503173191650668]],"local":[{"RerunIfChanged":{"output":"debug\\build\\data-router-rs-5962f064e1e3a04d\\output","paths":["../.proto/agi_core.proto"]}}],"rustflags":[],"config":0,"compile_kind":0}
