@@ -17,6 +17,8 @@ services:
       - .:/app/system-build-rs
     networks:
       - agi_network
+    depends_on:
+      - data-router
     restart: unless-stopped
 
   data-router:
