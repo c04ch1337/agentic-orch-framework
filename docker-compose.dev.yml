@@ -1,5 +1,9 @@
 version: '3.9'
 
+# PHOENIX ORCH Docker Compose - Development Configuration
+# All host ports are configurable via .env file
+# Copy .env.example to .env and modify ports as needed
+
 services:
   # --- Core Services ---
   orchestrator:
@@ -9,10 +13,11 @@ services:
     image: orchestrator-service-rs:latest
     container_name: orchestrator-service
     ports:
-      - "50051:50051"
+      - "${ORCHESTRATOR_PORT:-50051}:50051"
     environment:
       - DATA_ROUTER_ADDR=http://data-router:50052
-      - RUST_LOG=info
+      - REFLECTION_SERVICE_ADDR=http://reflection:50065
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -28,7 +33,7 @@ services:
     image: data-router-rs:latest
     container_name: data-router-service
     ports:
-      - "50052:50052"
+      - "${DATA_ROUTER_PORT:-50052}:50052"
     environment:
       - LLM_SERVICE_ADDR=http://llm-service:50053
       - TOOLS_SERVICE_ADDR=http://tools-service:50054
@@ -39,7 +44,8 @@ services:
       - HEART_KB_ADDR=http://heart-kb:50059
       - SOCIAL_KB_ADDR=http://social-kb:50060
       - SOUL_KB_ADDR=http://soul-kb:50061
-      - RUST_LOG=info
+      - CONTEXT_MANAGER_ADDR=http://context-manager:50064
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -63,10 +69,13 @@ services:
     image: llm-service-rs:latest
     container_name: llm-service
     ports:
-      - "50053:50053"
+      - "${LLM_SERVICE_PORT:-50053}:50053"
     environment:
       - LLM_SERVICE_ADDR=0.0.0.0:50053
-      - RUST_LOG=info
+      - LLM_API_URL=${LLM_API_URL:-https://openrouter.ai/api/v1/chat/completions}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-3.5-sonnet}
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -80,10 +89,11 @@ services:
     image: tools-service-rs:latest
     container_name: tools-service
     ports:
-      - "50054:50054"
+      - "${TOOLS_SERVICE_PORT:-50054}:50054"
     environment:
       - TOOLS_SERVICE_ADDR=0.0.0.0:50054
-      - RUST_LOG=info
+      - EXECUTOR_ADDR=http://executor:50062
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -97,10 +107,10 @@ services:
     image: safety-service-rs:latest
     container_name: safety-service
     ports:
-      - "50055:50055"
+      - "${SAFETY_SERVICE_PORT:-50055}:50055"
     environment:
       - SAFETY_SERVICE_ADDR=0.0.0.0:50055
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -114,10 +124,10 @@ services:
     image: logging-service-rs:latest
     container_name: logging-service
     ports:
-      - "50056:50056"
+      - "${LOGGING_SERVICE_PORT:-50056}:50056"
     environment:
       - LOGGING_SERVICE_ADDR=0.0.0.0:50056
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -132,10 +142,10 @@ services:
     image: mind-kb-rs:latest
     container_name: mind-kb
     ports:
-      - "50057:50057"
+      - "${MIND_KB_PORT:-50057}:50057"
     environment:
       - MIND_KB_ADDR=0.0.0.0:50057
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -149,10 +159,10 @@ services:
     image: body-kb-rs:latest
     container_name: body-kb
     ports:
-      - "50058:50058"
+      - "${BODY_KB_PORT:-50058}:50058"
     environment:
       - BODY_KB_ADDR=0.0.0.0:50058
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -166,10 +176,10 @@ services:
     image: heart-kb-rs:latest
     container_name: heart-kb
     ports:
-      - "50059:50059"
+      - "${HEART_KB_PORT:-50059}:50059"
     environment:
       - HEART_KB_ADDR=0.0.0.0:50059
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -183,10 +193,10 @@ services:
     image: social-kb-rs:latest
     container_name: social-kb
     ports:
-      - "50060:50060"
+      - "${SOCIAL_KB_PORT:-50060}:50060"
     environment:
       - SOCIAL_KB_ADDR=0.0.0.0:50060
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:
@@ -200,10 +210,109 @@ services:
     image: soul-kb-rs:latest
     container_name: soul-kb
     ports:
-      - "50061:50061"
+      - "${SOUL_KB_PORT:-50061}:50061"
     environment:
       - SOUL_KB_ADDR=0.0.0.0:50061
-      - RUST_LOG=info
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - .:/app/system-build-rs
+    networks:
+      - agi_network
+    restart: unless-stopped
+
+  # --- Phase 4 Services ---
+  executor:
+    build:
+      context: .
+      dockerfile: ./executor-rs/Dockerfile.dev
+    image: executor-rs:latest
+    container_name: executor-service
+    ports:
+      - "${EXECUTOR_PORT:-50062}:50062"
+    environment:
+      - EXECUTOR_ADDR=0.0.0.0:50062
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - .:/app/system-build-rs
+    networks:
+      - agi_network
+    restart: unless-stopped
+
+  # --- Phase 5 Services ---
+  context-manager:
+    build:
+      context: .
+      dockerfile: ./context-manager-rs/Dockerfile.dev
+    image: context-manager-rs:latest
+    container_name: context-manager-service
+    ports:
+      - "${CONTEXT_MANAGER_PORT:-50064}:50064"
+    environment:
+      - CONTEXT_MANAGER_ADDR=0.0.0.0:50064
+      - MIND_KB_ADDR=http://mind-kb:50057
+      - BODY_KB_ADDR=http://body-kb:50058
+      - HEART_KB_ADDR=http://heart-kb:50059
+      - SOCIAL_KB_ADDR=http://social-kb:50060
+      - SOUL_KB_ADDR=http://soul-kb:50061
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - .:/app/system-build-rs
+    networks:
+      - agi_network
+    depends_on:
+      - mind-kb
+      - body-kb
+      - heart-kb
+      - social-kb
+      - soul-kb
+    restart: unless-stopped
+
+  reflection:
+    build:
+      context: .
+      dockerfile: ./reflection-rs/Dockerfile.dev
+    image: reflection-rs:latest
+    container_name: reflection-service
+    ports:
+      - "${REFLECTION_PORT:-50065}:50065"
+    environment:
+      - REFLECTION_SERVICE_ADDR=0.0.0.0:50065
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - .:/app/system-build-rs
+    networks:
+      - agi_network
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: ./scheduler-rs/Dockerfile.dev
+    image: scheduler-rs:latest
+    container_name: scheduler-service
+    ports:
+      - "${SCHEDULER_PORT:-50066}:50066"
+    environment:
+      - SCHEDULER_SERVICE_ADDR=0.0.0.0:50066
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - .:/app/system-build-rs
+    networks:
+      - agi_network
+    restart: unless-stopped
+
+  agent-registry:
+    build:
+      context: .
+      dockerfile: ./agent-registry-rs/Dockerfile.dev
+    image: agent-registry-rs:latest
+    container_name: agent-registry-service
+    ports:
+      - "${AGENT_REGISTRY_PORT:-50067}:50067"
+    environment:
+      - AGENT_REGISTRY_ADDR=0.0.0.0:50067
+      - AGENT_REGISTRY_CONFIG=/app/system-build-rs/config/agent_registry.toml
+      - RUST_LOG=${RUST_LOG:-info}
     volumes:
       - .:/app/system-build-rs
     networks:

@@ -157,6 +157,77 @@ message QueryResponse {
   map<string, string> metadata = 3;
 }
 
+message CommandRequest {
+  string command = 1;
+  repeated string args = 2;
+  map<string, string> env = 3;
+}
+
+message CommandResponse {
+  string stdout = 1;
+  string stderr = 2;
+  int32 exit_code = 3;
+}
+
+message InputRequest {
+  string input_type = 1;
+  map<string, string> parameters = 2;
+}
+
+message InputResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// Health Check Messages - gRPC Health Checking Protocol
+message HealthRequest {
+  string service_name = 1;  // Optional: specific service to check
+}
+
+message HealthResponse {
+  bool healthy = 1;
+  string service_name = 2;
+  int64 uptime_seconds = 3;
+  string status = 4;  // "SERVING", "NOT_SERVING", "UNKNOWN"
+  map<string, string> dependencies = 5;  // Dependency name -> status
+}
+
+// Context Manager Messages - Context enrichment and compaction
+message ContextRequest {
+  string request_id = 1;
+  string query = 2;  // Original user query
+  string agent_type = 3;  // "master", "red_team", "blue_team"
+  int32 max_context_tokens = 4;  // Token budget for context
+  repeated string kb_sources = 5;  // Which KBs to query: "mind", "body", "heart", "social", "soul"
+}
+
+message EnrichedContext {
+  string request_id = 1;
+  string original_query = 2;
+  string system_prompt = 3;  // Complete enriched system prompt
+  repeated ContextEntry context_entries = 4;
+  int32 total_tokens_used = 5;
+  map<string, string> metadata = 6;
+}
+
+message ContextEntry {
+  string source_kb = 1;  // Which KB this came from
+  string content = 2;
+  float relevance_score = 3;
+  int64 timestamp = 4;
+}
+
+message ContextQuery {
+  string query = 1;
+  int32 limit = 2;
+  repeated string kb_sources = 3;
+}
+
+message ContextResponse {
+  repeated ContextEntry entries = 1;
+  int32 total_count = 2;
+}
+
 // Service Definitions
 // Orchestrator Service - Primary entry point for high-level coordination and planning
 service OrchestratorService {
@@ -224,6 +295,9 @@ service HeartKBService {
   rpc Store (StoreRequest) returns (StoreResponse);
   rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
   rpc Query (QueryRequest) returns (QueryResponse);
+  // Sentiment analysis RPCs
+  rpc StoreSentiment (StoreSentimentRequest) returns (StoreSentimentResponse);
+  rpc QueryState (GetStateRequest) returns (AGIState);
 }
 
 // Social KB - Social dynamics, relationship history, and social protocols
@@ -233,6 +307,10 @@ service SocialKBService {
   rpc Store (StoreRequest) returns (StoreResponse);
   rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
   rpc Query (QueryRequest) returns (QueryResponse);
+  // User identity RPCs
+  rpc RegisterUser (RegisterUserRequest) returns (RegisterUserResponse);
+  rpc GetUser (GetUserRequest) returns (GetUserResponse);
+  rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);
 }
 
 // Soul KB - Core values, identity, and long-term aspirational goals
@@ -242,4 +320,492 @@ service SoulKBService {
   rpc Store (StoreRequest) returns (StoreResponse);
   rpc Retrieve (RetrieveRequest) returns (RetrieveResponse);
   rpc Query (QueryRequest) returns (QueryResponse);
+  // Ethics and values RPCs
+  rpc StoreValue (StoreValueRequest) returns (StoreValueResponse);
+  rpc GetValue (GetValueRequest) returns (GetValueResponse);
+  rpc ListValues (ListValuesRequest) returns (ListValuesResponse);
+  rpc CheckEthics (EthicsCheckRequest) returns (EthicsCheckResponse);
 }
+
+// Executor Service - Bare-metal execution and input simulation
+service ExecutorService {
+  rpc ExecuteCommand (CommandRequest) returns (CommandResponse);
+  rpc SimulateInput (InputRequest) returns (InputResponse);
+}
+
+// Health Service - Standardized health checking for all services
+service HealthService {
+  rpc GetHealth (HealthRequest) returns (HealthResponse);
+}
+
+// Context Manager Service - Context enrichment and compaction
+service ContextManagerService {
+  rpc EnrichContext (ContextRequest) returns (EnrichedContext);
+  rpc GetRecentContext (ContextQuery) returns (ContextResponse);
+}
+
+// Reflection Service - Self-reflection and action evaluation
+// Port 50065
+
+// Request to reflect on a completed action
+message ReflectionRequest {
+  string request_id = 1;
+  string action_description = 2;      // What action was taken
+  string outcome = 3;                 // What was the result
+  bool success = 4;                   // Was it successful
+  map<string, string> context = 5;    // Additional context
+}
+
+// Response with reflection analysis
+message ReflectionResult {
+  string request_id = 1;
+  string analysis = 2;                // Analysis of the action
+  repeated string lessons_learned = 3; // Key lessons
+  repeated string improvements = 4;   // Suggested improvements
+  float confidence_score = 5;         // How confident in analysis
+  map<string, string> metadata = 6;
+}
+
+// Request to evaluate a proposed action
+message EvaluationRequest {
+  string request_id = 1;
+  string proposed_action = 2;         // What action is proposed
+  string goal = 3;                    // What is the goal
+  repeated string constraints = 4;    // Any constraints
+  map<string, string> context = 5;    // Additional context
+}
+
+// Response with action evaluation
+message EvaluationResult {
+  string request_id = 1;
+  bool recommended = 2;               // Should the action be taken
+  string rationale = 3;               // Why or why not
+  repeated string risks = 4;          // Potential risks
+  repeated string alternatives = 5;   // Alternative approaches
+  float confidence_score = 6;
+  map<string, string> metadata = 7;
+}
+
+// Request for meta-cognitive feedback
+message MetaCognitiveRequest {
+  string request_id = 1;
+  string topic = 2;                   // Area to reflect on
+  int32 depth = 3;                    // How deep to analyze (1-5)
+}
+
+// Response with meta-cognitive analysis
+message MetaCognitiveResult {
+  string request_id = 1;
+  string self_assessment = 2;         // Self-assessment
+  repeated string strengths = 3;      // Identified strengths
+  repeated string weaknesses = 4;     // Identified weaknesses
+  repeated string growth_areas = 5;   // Areas for growth
+  map<string, string> metadata = 6;
+}
+
+service ReflectionService {
+  // Reflect on a completed action and its outcome
+  rpc ReflectOnAction (ReflectionRequest) returns (ReflectionResult);
+  // Evaluate a proposed action before execution
+  rpc EvaluateAction (EvaluationRequest) returns (EvaluationResult);
+  // Perform meta-cognitive analysis on a topic
+  rpc MetaCognition (MetaCognitiveRequest) returns (MetaCognitiveResult);
+}
+
+// ============================================================
+// Task Scheduler Service - CRON-based task scheduling (Port 50066)
+// ============================================================
+
+message ScheduleTaskRequest {
+  string task_id = 1;
+  string task_name = 2;
+  string cron_expression = 3;        // CRON format: "0 * * * *" (every hour)
+  string payload = 4;                // JSON payload for the task
+  map<string, string> metadata = 5;
+}
+
+message ScheduleTaskResponse {
+  bool success = 1;
+  string scheduled_id = 2;
+  string next_run_time = 3;          // ISO 8601 timestamp
+  string error = 4;
+}
+
+message ListTasksRequest {
+  string filter = 1;                 // Optional filter by status or name
+  int32 limit = 2;
+}
+
+message ScheduledTask {
+  string task_id = 1;
+  string task_name = 2;
+  string cron_expression = 3;
+  string status = 4;                 // ACTIVE, PAUSED, COMPLETED
+  string next_run_time = 5;
+  string last_run_time = 6;
+  int32 run_count = 7;
+}
+
+message ListTasksResponse {
+  repeated ScheduledTask tasks = 1;
+  int32 total_count = 2;
+}
+
+message CancelTaskRequest {
+  string task_id = 1;
+}
+
+message CancelTaskResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+service SchedulerService {
+  rpc ScheduleTask (ScheduleTaskRequest) returns (ScheduleTaskResponse);
+  rpc ListTasks (ListTasksRequest) returns (ListTasksResponse);
+  rpc CancelTask (CancelTaskRequest) returns (CancelTaskResponse);
+}
+
+// ============================================================
+// Agent Registry Service - Agent management and lookup (Port 50067)
+// ============================================================
+
+message RegisterAgentRequest {
+  string name = 1;
+  int32 port = 2;
+  string role = 3;
+  repeated string capabilities = 4;
+  map<string, string> metadata = 5;
+}
+
+message RegisterAgentResponse {
+  bool success = 1;
+  string agent_id = 2;
+  string error = 3;
+}
+
+message GetAgentRequest {
+  string name = 1;                   // Lookup by name
+  string capability = 2;             // Or lookup by capability
+}
+
+message AgentInfo {
+  string agent_id = 1;
+  string name = 2;
+  int32 port = 3;
+  string role = 4;
+  repeated string capabilities = 5;
+  string status = 6;                 // ONLINE, OFFLINE, BUSY
+  map<string, string> metadata = 7;
+}
+
+message GetAgentResponse {
+  bool found = 1;
+  AgentInfo agent = 2;
+}
+
+message ListAgentsRequest {
+  string capability_filter = 1;      // Optional filter by capability
+  string status_filter = 2;          // Optional filter by status
+}
+
+message ListAgentsResponse {
+  repeated AgentInfo agents = 1;
+  int32 total_count = 2;
+}
+
+service AgentRegistryService {
+  rpc RegisterAgent (RegisterAgentRequest) returns (RegisterAgentResponse);
+  rpc GetAgent (GetAgentRequest) returns (GetAgentResponse);
+  rpc ListAgents (ListAgentsRequest) returns (ListAgentsResponse);
+}
+
+// ============================================================
+// RED Team Agent Service - Ethical Adversary (Port 50068)
+// ============================================================
+
+message ScanRequest {
+  string target = 1;                  // Target system/component
+  string scan_type = 2;               // vuln_scan, port_scan, config_audit
+  map<string, string> parameters = 3;
+}
+
+message ScanResult {
+  string scan_id = 1;
+  repeated Vulnerability vulnerabilities = 2;
+  string summary = 3;
+  float risk_score = 4;
+  map<string, string> metadata = 5;
+}
+
+message Vulnerability {
+  string id = 1;
+  string name = 2;
+  string severity = 3;                // CRITICAL, HIGH, MEDIUM, LOW
+  string description = 4;
+  string remediation = 5;
+}
+
+message AttackSimulationRequest {
+  string target = 1;
+  string attack_type = 2;             // phishing, brute_force, injection
+  bool dry_run = 3;                   // If true, simulate only
+  map<string, string> parameters = 4;
+}
+
+message AttackSimulationResult {
+  string simulation_id = 1;
+  bool success = 2;                   // Would attack succeed?
+  repeated string attack_path = 3;
+  string impact_assessment = 4;
+  repeated string recommendations = 5;
+  map<string, string> metadata = 6;
+}
+
+message ReportRequest {
+  string report_type = 1;             // vulnerability, pentest, risk
+  string time_range = 2;              // last_24h, last_week, all
+}
+
+message SecurityReport {
+  string report_id = 1;
+  string report_type = 2;
+  string content = 3;                 // Markdown formatted report
+  repeated string key_findings = 4;
+  float overall_risk_score = 5;
+  map<string, string> metadata = 6;
+}
+
+service RedTeamService {
+  rpc ScanVulnerabilities (ScanRequest) returns (ScanResult);
+  rpc SimulateAttack (AttackSimulationRequest) returns (AttackSimulationResult);
+  rpc GenerateReport (ReportRequest) returns (SecurityReport);
+}
+
+// ============================================================
+// BLUE Team Agent Service - Autonomous Defense (Port 50069)
+// ============================================================
+
+message AnomalyTriageRequest {
+  string anomaly_id = 1;
+  string anomaly_type = 2;            // network, behavior, access
+  string data = 3;                    // JSON payload of anomaly data
+  int32 priority = 4;                 // 1-5 (5 = highest)
+}
+
+message TriageResult {
+  string triage_id = 1;
+  bool is_threat = 2;
+  string threat_classification = 3;  // false_positive, malware, intrusion, etc
+  int32 severity = 4;
+  repeated string recommended_actions = 5;
+  map<string, string> metadata = 6;
+}
+
+message ContainmentRequest {
+  string threat_id = 1;
+  string containment_type = 2;        // isolate, block, quarantine
+  string target = 3;                  // IP, user, process
+  bool auto_remediate = 4;
+}
+
+message ContainmentResult {
+  string containment_id = 1;
+  bool success = 2;
+  string action_taken = 3;
+  string status = 4;                  // CONTAINED, FAILED, PENDING
+  map<string, string> metadata = 5;
+}
+
+message HardeningRequest {
+  string target = 1;                  // system, network, application
+  string hardening_profile = 2;       // cis, nist, custom
+  bool apply_changes = 3;             // false = report only
+}
+
+message HardeningResult {
+  string hardening_id = 1;
+  repeated string changes_applied = 2;
+  repeated string changes_recommended = 3;
+  int32 compliance_score = 4;         // 0-100
+  map<string, string> metadata = 5;
+}
+
+service BlueTeamService {
+  rpc TriageAnomaly (AnomalyTriageRequest) returns (TriageResult);
+  rpc ContainThreat (ContainmentRequest) returns (ContainmentResult);
+  rpc HardenSystem (HardeningRequest) returns (HardeningResult);
+}
+
+// ============================================================
+// Heart-KB: Sentiment & Emotional State (Port 50059)
+// ============================================================
+
+enum Sentiment {
+  SENTIMENT_NEUTRAL = 0;
+  SENTIMENT_URGENT = 1;
+  SENTIMENT_ANXIOUS = 2;
+  SENTIMENT_FRUSTRATED = 3;
+  SENTIMENT_CONFIDENT = 4;
+  SENTIMENT_POSITIVE = 5;
+  SENTIMENT_NEGATIVE = 6;
+}
+
+message SentimentFact {
+  string source_id = 1;            // User ID or system component
+  int64 timestamp = 2;
+  Sentiment sentiment = 3;
+  float confidence_score = 4;      // 0.0 - 1.0
+  string raw_text = 5;             // Original text for analysis
+  map<string, string> metadata = 6;
+}
+
+message StoreSentimentRequest {
+  SentimentFact fact = 1;
+}
+
+message StoreSentimentResponse {
+  bool success = 1;
+  bool sentiment_shift_detected = 2;
+  Sentiment previous_sentiment = 3;
+  Sentiment current_sentiment = 4;
+}
+
+message AGIState {
+  Sentiment current_sentiment = 1;
+  float confidence = 2;
+  int64 last_updated = 3;
+  string dominant_emotion = 4;
+  map<string, string> context = 5;
+}
+
+message GetStateRequest {
+  string source_id = 1;
+}
+
+
+
+// ============================================================
+// Social-KB: User Identity & Preferences (Port 50060)
+// ============================================================
+
+enum UserRole {
+  ROLE_GUEST = 0;
+  ROLE_USER = 1;
+  ROLE_OPERATOR = 2;
+  ROLE_ADMIN = 3;
+  ROLE_SYSTEM = 4;
+}
+
+message UserIdentity {
+  string user_id = 1;
+  string name = 2;
+  UserRole role = 3;
+  repeated string permissions = 4;
+  int64 created_at = 5;
+  int64 last_active = 6;
+  map<string, string> attributes = 7;
+}
+
+message CommunicationPreference {
+  string user_id = 1;
+  string preferred_language = 2;    // ISO code (en, es, fr)
+  string alert_channel = 3;         // grpc, rest, webhook
+  bool verbose_responses = 4;
+  int32 response_detail_level = 5;  // 1-5
+  map<string, string> settings = 6;
+}
+
+message RegisterUserRequest {
+  UserIdentity identity = 1;
+  CommunicationPreference preferences = 2;
+}
+
+message RegisterUserResponse {
+  bool success = 1;
+  string user_id = 2;
+}
+
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  bool found = 1;
+  UserIdentity identity = 2;
+  CommunicationPreference preferences = 3;
+}
+
+message ListUsersRequest {
+  UserRole role_filter = 1;
+}
+
+message ListUsersResponse {
+  repeated UserIdentity users = 1;
+  int32 total_count = 2;
+}
+
+
+
+// ============================================================
+// Soul-KB: Core Values & Ethical Constraints (Port 50061)
+// ============================================================
+
+enum ValuePriority {
+  PRIORITY_LOW = 0;
+  PRIORITY_MEDIUM = 1;
+  PRIORITY_HIGH = 2;
+  PRIORITY_CRITICAL = 3;
+  PRIORITY_IMMUTABLE = 4;           // Cannot be overridden
+}
+
+message CoreValue {
+  string value_id = 1;
+  string name = 2;                  // e.g., "user_safety", "data_privacy"
+  string description = 3;
+  ValuePriority priority = 4;
+  string constraint = 5;            // Rule that enforces this value
+  bool is_active = 6;
+  map<string, string> metadata = 7;
+}
+
+message StoreValueRequest {
+  CoreValue value = 1;
+}
+
+message StoreValueResponse {
+  bool success = 1;
+  string value_id = 2;
+}
+
+message GetValueRequest {
+  string value_id = 1;
+  string name = 2;                  // Can query by name
+}
+
+message GetValueResponse {
+  bool found = 1;
+  CoreValue value = 2;
+}
+
+message ListValuesRequest {
+  ValuePriority min_priority = 1;
+}
+
+message ListValuesResponse {
+  repeated CoreValue values = 1;
+  int32 total_count = 2;
+}
+
+message EthicsCheckRequest {
+  string action = 1;
+  string context = 2;
+}
+
+message EthicsCheckResponse {
+  bool allowed = 1;
+  repeated string violated_values = 2;
+  string recommendation = 3;
+}
+
+

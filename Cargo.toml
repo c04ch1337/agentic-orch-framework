@@ -12,6 +12,15 @@ members = [
     "heart-kb-rs",
     "social-kb-rs",
     "soul-kb-rs",
+    "sensor-rs",
+    "executor-rs",
+    "context-manager-rs",
+    "reflection-rs",
+    "scheduler-rs",
+    "agent-registry-rs",
+    "red-team-rs",
+    "blue-team-rs",
+    "api-gateway-rs",
 ]
 
 [profile.release]

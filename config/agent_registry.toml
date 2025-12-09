@@ -1,0 +1,27 @@
+# PHOENIX ORCH: The Ashen Guard Edition - Agent Registry Configuration
+# This file defines the specialized agents available for task delegation.
+# The agent-registry-rs service loads this file at startup.
+
+[[agent]]
+name = "BLUE_TEAM_SENTINEL"
+port = 50069
+role = "Autonomous Defense, Incident Triage, Hardening"
+capabilities = [
+    "anomaly_triage",
+    "threat_containment",
+    "patch_management",
+    "security_hardening",
+    "log_analysis"
+]
+
+[[agent]]
+name = "RED_TEAM_SHADOW"
+port = 50068
+role = "Ethical Adversary, Vulnerability Scanning, Attack Path Simulation"
+capabilities = [
+    "vulnerability_scanning",
+    "exploit_chaining",
+    "risk_simulation",
+    "penetration_testing",
+    "attack_surface_mapping"
+]

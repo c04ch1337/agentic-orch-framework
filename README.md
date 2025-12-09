@@ -1,156 +1,163 @@
-That's a fantastic idea\! A comprehensive `README.md` is essential for documenting your completed architecture.
+# 🧠 PHOENIX ORCH: Advanced Agentic AGI System
 
-Based on all the work we've done—from the initial 11-service design and Protobuf definitions to the final Docker containerization and orchestration logic—here is the complete `README.md` for your **Master Orchestrator AGI System**.
+**PHOENIX ORCH** is a modular, high-performance microservice architecture designed for autonomous, multi-agent cognitive operations. Built in **Rust**, it leverages gRPC for low-latency inter-service communication and implements a sophisticated cognitive architecture with emotional, social, and ethical awareness.
 
------
+---
 
-# 🧠 Master Orchestrator AGI System: Blueprint
+## 🌟 System Status: Phase 7 Complete
 
-The **Master Orchestrator AGI System** is a modular, high-performance microservice architecture designed to handle complex, multi-modal, and autonomous tasks. It serves as a fully containerized blueprint for building agentic AI, leveraging gRPC for inter-service communication and Rust for stability and speed.
+- **Microservices:** 20 (Control, Cognitive, Functional, Agents)
+- **Communication:** gRPC (Internal), REST (External via API Gateway)
+- **Language:** Rust (2021/2024 edition)
+- **Architecture:** Event-driven, capability-based delegation
 
-## 🌟 Key Features
-
-  * **11 Microservices:** A complete architecture covering Control, Intelligence, Action, Safety, Utility, and five specialized Knowledge Bases (KBs).
-  * **Decoupled Control Plane:** The **Orchestrator** and **Data Router** manage all planning, routing, and execution, maintaining separation of concerns.
-  * **Thread-Safe Clients:** All inter-service communication utilizes the `Arc<Mutex<Option<Client>>>` pattern for highly concurrent, non-blocking routing.
-  * **Containerized Deployment:** Ready for production scaling via Docker Compose, Docker Swarm, or Kubernetes.
-  * **4-Phase AGI Loop:** Implements intelligent planning, safety validation, execution, and response aggregation.
+---
 
 ## 🚀 Architecture Overview
 
-The system is organized into a single **Rust Workspace** containing 11 packages, all communicating over gRPC ports **50051** through **50061**. All services are on the shared `agi_network`.
+The system is organized as a single **Rust Workspace** containing 20 crates.
 
-### A. Control Services (The Brain)
+### A. Control Plane (The Brain)
 
-| Service | Port | Description | Core Logic Implemented |
-| :--- | :--- | :--- | :--- |
-| **Orchestrator** | 50051 | **The Entry Point.** Executes the 4-phase AGI loop: Planning, Safety Check, Execution, Aggregation. | **Functional Orchestration Logic** |
-| **Data Router** | 50052 | **The Central Hub.** Routes all requests to 9 downstream services. Manages 9 thread-safe gRPC client stubs. | **100% Dynamic Routing Logic** |
+| Service | Port | Description |
+| :--- | :--- | :--- |
+| **Orchestrator** | 50051 | **Central Nervous System.** Coordinates planning, execution, and delegation. Implements the "Plan-Validate-Execute-Reflect" loop. |
+| **Data Router** | 50052 | **Neural Bus.** Dynamic routing mesh. Handles service discovery and load balancing. |
+| **Context Manager** | 50064 | **Working Memory.** Aggregates context from KBs and enriches LLM prompts with sentiment/identity. |
+| **Reflection Service** | 50065 | **Meta-Cognition.** Analyzes past actions to improve future performance (self-learning). |
+| **Scheduler** | 50066 | **Time Management.** CRON-based task scheduling and execution. |
+| **Agent Registry** | 50067 | **Team Management.** Dynamic discovery of specialized agents based on capabilities. |
 
-### B. Core Functional Services
-
-| Service | Port | Role | Core Methods Routed |
-| :--- | :--- | :--- | :--- |
-| **LLM Service** | 50053 | Provides natural language processing, planning, and generation. | `generate_text`, `process`, `embed_text` |
-| **Tools Service** | 50054 | Interface for external actions (e.g., Web Search, APIs, code execution). | `execute_tool`, `list_tools` |
-| **Safety Service** | 50055 | Policy enforcement, threat detection, and ethical constraint validation. | `check_policy`, `validate_request`, `check_threat` |
-| **Logging Service** | 50056 | Centralized telemetry, logging, and metrics collection. | `log`, `get_metrics` |
-
-### C. Knowledge Bases (KBs)
-
-All KBs share the common `KnowledgeBaseService` interface (`query_kb`, `store_fact`, `retrieve`).
+### B. Cognitive Layer (The Soul)
 
 | Service | Port | Specialization |
 | :--- | :--- | :--- |
-| **Mind-KB** | 50057 | Short-term, episodic, and declarative memory. |
-| **Body-KB** | 50058 | Physical/digital embodiment state, sensor data, and environment context. |
-| **Heart-KB** | 50059 | Personality traits, emotional state, and motivational drives. |
-| **Social-KB** | 50060 | Social dynamics, relationship history, and trust scores. |
-| **Soul-KB** | 50061 | Core values, long-term goals, and fundamental identity. |
+| **Mind-KB** | 50057 | **Facts & Logic.** Short-term episodic memory and vector-based semantic search. |
+| **Body-KB** | 50058 | **Physical State.** Sensor data, system health, and environment context. |
+| **Heart-KB** | 50059 | **Emotion.** Tracks sentiment (Neutral, Urgent, Frustrated) and emotional shifts. |
+| **Social-KB** | 50060 | **Identity.** Manages user profiles, roles, and communication preferences. |
+| **Soul-KB** | 50061 | **Ethics.** Immutable core values and ethical constraint enforcement. |
 
-## 📐 Core Workflow Visualization
+### C. Functional Layer (The Body)
 
-The following Mermaid diagram illustrates the flow of communication. All primary communication (solid lines) must pass through the **Data Router** (DR).
+| Service | Port | Role |
+| :--- | :--- | :--- |
+| **LLM Service** | 50053 | Interface to LLM providers (OpenAI, Anthropic, Local). Handles generation and embedding. |
+| **Tools Service** | 50054 | Safe execution of external tools (Web Search, Calculator, Code Execution). |
+| **Safety Service** | 50055 | Input/Output filtering, PII redaction, and threat detection. |
+| **Logging Service** | 50056 | Centralized telemetry and structured logging. |
+| **Sensor Service** | 50062 | Hardware/System monitoring (CPU, Memory, Network). |
+| **Executor Service** | 50063 | Sandboxed command execution runtime. |
 
-```mermaid
-graph TD
-    subgraph AGI Core Control Services
-        O[Orchestrator:50051]
-        DR(Data Router:50052)
-        O --> DR
-    end
+### D. Specialized Agents (The Team)
 
-    subgraph Core Functions
-        L[LLM Service:50053]
-        T[Tools Service:50054]
-        S[Safety Service:50055]
-        LG[Logging Service:50056]
-    end
+| Service | Port | Role |
+| :--- | :--- | :--- |
+| **Red Team** | 50068 | **Adversary.** Vulnerability scanning, attack simulation, security auditing. |
+| **Blue Team** | 50069 | **Defender.** Threat containment, system hardening, incident response. |
 
-    subgraph Knowledge Bases
-        KB1(Mind-KB:50057)
-        KB2(Body-KB:50058)
-        KB3(Heart-KB:50059)
-        KB4(Social-KB:50060)
-        KB5(Soul-KB:50061)
-    end
+### E. Gateway (The Interface)
 
-    %% Data Router Routing
-    DR --> L
-    DR --> T
-    DR --> S
-    DR --> LG
-    DR --> KB1
-    DR --> KB2
-    DR --> KB3
-    DR --> KB4
-    DR --> KB5
-    
-    %% Orchestrator Final Communication
-    DR --> O
-```
+| Service | Port | Role |
+| :--- | :--- | :--- |
+| **API Gateway** | 8000 | **REST Interface.** Exposes `POST /api/v1/execute` to external clients. Translates JSON to gRPC. |
 
------
+---
 
-## 🛠️ Installation and Deployment
-
-The entire system is containerized and managed via `docker-compose.dev.yml`.
+## 🛠️ Build and Run
 
 ### Prerequisites
+- **Rust:** Latest stable toolchain (`rustup update`).
+- **Protobuf Compiler:** `protoc` (required for code generation).
 
-1.  **Rust:** The Rust toolchain (for local development/compilation).
-2.  **Docker:** Docker Desktop or Docker Engine (for building and running containers).
-3.  **Protobuf:** Protobuf compiler (`protoc`) is required for code generation (handled in the Dockerfiles).
-
-### 1\. Build and Run
-
-From the root directory, use the provided Docker Compose file:
-
+### 1. Build Workspace
+Compile all 20 services in parallel:
 ```bash
-# 1. Build all 11 images (will take time due to multi-stage Rust builds)
-docker-compose -f docker-compose.dev.yml build
-
-# 2. Start all 11 services in detached mode
-# The Data Router and Orchestrator clients will gracefully connect to the downstream services.
-docker-compose -f docker-compose.dev.yml up -d
-
-# 3. View logs (useful for debugging client connection status)
-docker-compose -f docker-compose.dev.yml logs -f
+cargo build --workspace
 ```
 
-### 2\. Testing the System Entry Point
-
-Once running, the system can be tested by sending a gRPC request to the **Orchestrator** on port **50051**.
-
+### 2. Run Services
+You can run services individually or via a process manager.
 ```bash
-# Example using grpcurl (assuming agi_core.proto is available)
-# This tests the full path: Orchestrator -> Data Router -> LLM Service Stub
-grpcurl -plaintext localhost:50051 agi_core.OrchestratorService/PlanAndExecute
+# Example: Run Orchestrator
+cargo run -p orchestrator-service-rs
+
+# Example: Run API Gateway
+cargo run -p api-gateway-rs
 ```
 
------
+### 3. Verification
+Check if all services compile without errors:
+```bash
+cargo check --workspace
+```
 
-## 💡 Implementation Phases
+---
 
-The project has reached **Phase 3 Completion**. All structural components are in place and function as designed.
+## 🔌 API Usage
 
-| Phase | Description | Status | Next Steps |
-| :--- | :--- | :--- | :--- |
-| **Phase 1** | Protobuf Definition & Service Scaffolding | COMPLETE | N/A |
-| **Phase 2** | 11-Service Stub Implementation & Containerization | COMPLETE | N/A |
-| **Phase 3** | Data Router & Orchestrator Core Logic Implementation | COMPLETE | N/A |
-| **Phase 4** | **Deep Business Logic Integration** | **PENDING** | Implement LLM API, Vector DBs, Tool Executors, and Safety Policies. |
+### Execute a Request
+Send a natural language request to the system via the API Gateway.
 
-### Focus for Phase 4 (Deep Logic)
+**Endpoint:** `POST http://localhost:8000/api/v1/execute`
+**Auth:** header `Authorization: Bearer phoenix-default-key`
 
-| Service | Phase 4 Integration |
-| :--- | :--- |
-| **LLM Service** (50053) | Connect to an external LLM API (e.g., Gemini, GPT). |
-| **Knowledge Bases** (50057-61) | Integrate with a **Vector Database** (e.g., Qdrant) for semantic search and persistence. |
-| **Tools Service** (50054) | Implement actual external REST/RPC calls for defined tools. |
+**Payload:**
+```json
+{
+  "method": "PlanAndExecute",
+  "payload": "Analyze the system logs for suspicious activity and generate a report."
+}
+```
 
-## 📝 Master System Prompt (for LLM Planning)
+**Response:**
+```json
+{
+  "id": "uuid-...",
+  "status_code": 200,
+  "payload": "Orchestrator completed PlanAndExecute...",
+  "metadata": {
+    "plan": "1. Scan logs... 2. Identify threats...",
+    "routed_to": "blue-team-agent"
+  }
+}
+```
 
-The **Master System Prompt** is the definitive instruction set used by the **Orchestrator** to guide the **LLM Service's** planning phase. It enforces structured JSON output, safety checks, and strategic use of the Knowledge Bases. Refer to the documentation to guide its future behavior.
+---
 
------
+## 🔧 Troubleshooting
+
+### Common Issues
+
+1.  **Port Conflicts:**
+    *   Ensure ports 50051-50069 and 8000 are free.
+    *   Check `netstat -ano | findstr <port>` on Windows.
+
+2.  **Protobuf Errors:**
+    *   Ensure `protoc` is in your system PATH.
+    *   If `agi_core.proto` changes, run `cargo clean` and rebuild.
+
+3.  **Service Discovery Failures:**
+    *   Ensure **Data Router** (50052) is running. It is required for all inter-service communication.
+    *   Check logs for "Failed to connect to Data Router".
+
+4.  **LLM Connection:**
+    *   Set `LLM_PROVIDER` and `LLM_API_KEY` environment variables if using external providers.
+    *   Default is `mock` provider for testing.
+
+---
+
+## 📚 Development Guide
+
+### Adding a New Service
+1.  Create new crate: `cargo new my-service-rs`
+2.  Add to `Cargo.toml` workspace members.
+3.  Add dependencies (`tonic`, `prost`, `tokio`).
+4.  Define service in `.proto/agi_core.proto`.
+5.  Implement `main.rs` with gRPC server.
+6.  Register with **Data Router** or **Agent Registry**.
+
+### Modifying Protobufs
+1.  Edit `.proto/agi_core.proto`.
+2.  Run `cargo build` to trigger `tonic-build` recompilation.
+3.  Update service implementations to match new trait signatures.
