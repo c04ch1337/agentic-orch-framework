@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use once_cell::sync::Lazy;
 
 mod execution_logic;
-use execution_logic::{execute_shell_command, simulate_input};
+use execution_logic::{execute_shell_command, execute_python_sandboxed, simulate_input};
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -44,7 +44,7 @@ impl ExecutorService for ExecutorServer {
         
         log::info!("Received ExecuteCommand request: {}", req.command);
 
-        match execute_shell_command(&req.command, &req.args, &req.env) {
+        match execute_shell_command(&req.command, &req.args, &req.env).await {
             Ok((stdout, stderr, exit_code)) => {
                 Ok(Response::new(CommandResponse {
                     stdout,

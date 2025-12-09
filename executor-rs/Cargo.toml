@@ -25,6 +25,9 @@ enigo = "0.0.14"
 
 # Docker Client (for sandboxing)
 bollard = "0.18"
+uuid = { version = "1.6", features = ["v4"] }
+futures = "0.3"
+tempfile = "3.8"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"
