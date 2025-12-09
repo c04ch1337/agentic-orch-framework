@@ -104,6 +104,14 @@ impl SchedulerService for SchedulerServer {
             req.task_id.clone()
         };
         
+        // Set priority based on source service
+        let priority = if req.metadata.get("source_service").map(|s| s.as_str()) == Some("curiosity-engine-rs") {
+            log::info!("Setting HIGH priority (8) for Curiosity Engine task");
+            8
+        } else {
+            5 // Default priority
+        };
+
         let entry = TaskEntry {
             task_id: task_id.clone(),
             task_name: req.task_name,
@@ -113,7 +121,11 @@ impl SchedulerService for SchedulerServer {
             next_run_time: next_run,
             last_run_time: None,
             run_count: 0,
-            metadata: req.metadata,
+            metadata: {
+                let mut meta = req.metadata;
+                meta.insert("priority".to_string(), priority.to_string());
+                meta
+            },
         };
         
         let mut tasks = self.tasks.write().await;

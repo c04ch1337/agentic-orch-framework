@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package log_analyzer;
+
+service LogAnalyzer {
+  rpc AnalyzeExecutionOutcome(ExecutionLog) returns (FailureReport);
+}
+
+message ExecutionLog {
+  string raw_log = 1;
+  bool expected_outcome = 2;
+}
+
+message FailureReport {
+  enum Severity {
+    CRITICAL = 0;
+    AMBIGUOUS = 1;
+    SUCCESS = 2;
+  }
+  
+  Severity severity = 1;
+  string root_cause_summary = 2;
+  string service_id = 3;
+}

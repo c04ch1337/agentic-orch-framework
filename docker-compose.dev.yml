@@ -3,6 +3,7 @@ version: '3.9'
 # PHOENIX ORCH Docker Compose - Development Configuration
 # All host ports are configurable via .env file
 # Copy .env.example to .env and modify ports as needed
+# Security and resource limits implemented for development environment
 
 services:
   # --- Core Services ---
@@ -19,12 +20,29 @@ services:
       - REFLECTION_SERVICE_ADDR=http://reflection:50065
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - orchestrator_data:/app/data
     networks:
       - agi_network
+      - orchestrator_network
     depends_on:
-      - data-router
-    restart: unless-stopped
+      data-router:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50051" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   data-router:
     build:
@@ -47,20 +65,33 @@ services:
       - CONTEXT_MANAGER_ADDR=http://context-manager:50064
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - data_router_data:/app/data
     networks:
       - agi_network
+      - data_router_network
     depends_on:
-      - llm-service
-      - tools-service
-      - safety-service
-      - logging-service
-      - mind-kb
-      - body-kb
-      - heart-kb
-      - social-kb
-      - soul-kb
-    restart: unless-stopped
+      llm-service:
+        condition: service_healthy
+      safety-service:
+        condition: service_healthy
+      logging-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '0.7'
+        reservations:
+          memory: 384M
+          cpus: '0.2'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50052" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   llm-service:
     build:
@@ -77,10 +108,26 @@ services:
       - LLM_MODEL=${LLM_MODEL:-anthropic/claude-3.5-sonnet}
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - llm_service_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - llm_service_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50053" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   tools-service:
     build:
@@ -95,10 +142,29 @@ services:
       - EXECUTOR_ADDR=http://executor:50062
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - tools_service_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - tools_service_network
+    depends_on:
+      executor:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50054" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   safety-service:
     build:
@@ -112,10 +178,26 @@ services:
       - SAFETY_SERVICE_ADDR=0.0.0.0:50055
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - safety_service_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - safety_service_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50055" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   logging-service:
     build:
@@ -129,10 +211,26 @@ services:
       - LOGGING_SERVICE_ADDR=0.0.0.0:50056
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - logging_service_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - logging_service_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50056" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   # --- Knowledge Bases ---
   mind-kb:
@@ -147,10 +245,26 @@ services:
       - MIND_KB_ADDR=0.0.0.0:50057
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - mind_kb_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - mind_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50057" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   body-kb:
     build:
@@ -164,10 +278,26 @@ services:
       - BODY_KB_ADDR=0.0.0.0:50058
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - body_kb_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - body_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50058" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   heart-kb:
     build:
@@ -181,10 +311,26 @@ services:
       - HEART_KB_ADDR=0.0.0.0:50059
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - heart_kb_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - heart_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50059" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   social-kb:
     build:
@@ -198,10 +344,26 @@ services:
       - SOCIAL_KB_ADDR=0.0.0.0:50060
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - social_kb_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - social_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50060" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   soul-kb:
     build:
@@ -215,10 +377,26 @@ services:
       - SOUL_KB_ADDR=0.0.0.0:50061
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - soul_kb_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - soul_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50061" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   # --- Phase 4 Services ---
   executor:
@@ -233,10 +411,26 @@ services:
       - EXECUTOR_ADDR=0.0.0.0:50062
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - executor_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - executor_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.2'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50062" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   # --- Phase 5 Services ---
   context-manager:
@@ -256,16 +450,37 @@ services:
       - SOUL_KB_ADDR=http://soul-kb:50061
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - context_manager_data:/app/data
     networks:
       - agi_network
+      - context_manager_network
     depends_on:
-      - mind-kb
-      - body-kb
-      - heart-kb
-      - social-kb
-      - soul-kb
-    restart: unless-stopped
+      mind-kb:
+        condition: service_healthy
+      body-kb:
+        condition: service_healthy
+      heart-kb:
+        condition: service_healthy
+      social-kb:
+        condition: service_healthy
+      soul-kb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50064" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   reflection:
     build:
@@ -279,10 +494,26 @@ services:
       - REFLECTION_SERVICE_ADDR=0.0.0.0:50065
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - reflection_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - reflection_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50065" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   scheduler:
     build:
@@ -296,10 +527,26 @@ services:
       - SCHEDULER_SERVICE_ADDR=0.0.0.0:50066
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - scheduler_data:/app/data
     networks:
       - agi_network
-    restart: unless-stopped
+      - scheduler_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50066" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   agent-registry:
     build:
@@ -314,12 +561,85 @@ services:
       - AGENT_REGISTRY_CONFIG=/app/system-build-rs/config/agent_registry.toml
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      - .:/app/system-build-rs
+      - .:/app/system-build-rs:ro
+      - agent_registry_data:/app/data
+      - ./config:/app/system-build-rs/config:ro
     networks:
       - agi_network
-    restart: unless-stopped
+      - agent_registry_network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.1'
+    restart: on-failure:5
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50067" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  orchestrator_data:
+  data_router_data:
+  llm_service_data:
+  tools_service_data:
+  safety_service_data:
+  logging_service_data:
+  mind_kb_data:
+  body_kb_data:
+  heart_kb_data:
+  social_kb_data:
+  soul_kb_data:
+  executor_data:
+  context_manager_data:
+  reflection_data:
+  scheduler_data:
+  agent_registry_data:
+
 
 networks:
   agi_network:
     name: agi_network
     driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+  orchestrator_network:
+    internal: true
+  data_router_network:
+    internal: true
+  llm_service_network:
+    internal: true
+  tools_service_network:
+    internal: true
+  safety_service_network:
+    internal: true
+  logging_service_network:
+    internal: true
+  mind_kb_network:
+    internal: true
+  body_kb_network:
+    internal: true
+  heart_kb_network:
+    internal: true
+  social_kb_network:
+    internal: true
+  soul_kb_network:
+    internal: true
+  executor_network:
+    internal: true
+  context_manager_network:
+    internal: true
+  reflection_network:
+    internal: true
+  scheduler_network:
+    internal: true
+  agent_registry_network:
+    internal: true

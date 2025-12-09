@@ -1,0 +1,241 @@
+name: Container Security Scanning
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+          - executor-rs
+    
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: false
+          load: true
+          tags: phoenix-orch/${{ matrix.service }}:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Scan 1: Trivy - Vulnerability Scanner
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: phoenix-orch/${{ matrix.service }}:scan
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+
+      # Scan 2: Dockle - Container Linter
+      - name: Run Dockle image linter
+        uses: erzz/dockle-action@v1
+        with:
+          image: phoenix-orch/${{ matrix.service }}:scan
+          exit-code: 1
+          failure-threshold: WARN
+          accept-filenames: "/.dockerignore,/Dockerfile"
+          
+      # Scan 3: Docker Scout for deeper analysis
+      - name: Analyze with Docker Scout
+        run: |
+          docker scout cves phoenix-orch/${{ matrix.service }}:scan
+          docker scout recommendations phoenix-orch/${{ matrix.service }}:scan
+
+  dockerfile-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Lint Dockerfiles
+        uses: brpaz/hadolint-action@v1.5.0
+        with:
+          dockerfile: "**/Dockerfile"
+          failure-threshold: warning
+
+  sign-images:
+    needs: [build-and-scan, dockerfile-lint]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+          - executor-rs
+    
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Set up Cosign
+        uses: sigstore/cosign-installer@main
+      
+      - name: Extract version
+        id: version
+        run: echo "::set-output name=tag::${GITHUB_REF#refs/tags/}"
+      
+      - name: Build and push image
+        id: build-push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:${{ steps.version.outputs.tag }}
+            ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:latest
+      
+      - name: Sign the images with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: |
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}@${DIGEST}
+
+  security-policy:
+    needs: [build-and-scan, dockerfile-lint]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Configure Seccomp Profile
+        run: |
+          echo "Creating custom seccomp profile"
+          mkdir -p .docker/seccomp
+          cat > .docker/seccomp/phoenix-orch-profile.json << 'EOF'
+          {
+            "defaultAction": "SCMP_ACT_ERRNO",
+            "architectures": [
+              "SCMP_ARCH_X86_64",
+              "SCMP_ARCH_X86",
+              "SCMP_ARCH_AARCH64"
+            ],
+            "syscalls": [
+              {
+                "names": [
+                  "accept",
+                  "bind",
+                  "close",
+                  "connect",
+                  "dup",
+                  "dup2",
+                  "dup3",
+                  "execve",
+                  "exit",
+                  "exit_group",
+                  "fstat",
+                  "futex",
+                  "getcwd",
+                  "getpid",
+                  "getrandom",
+                  "getsockname",
+                  "getsockopt",
+                  "listen",
+                  "lseek",
+                  "mmap",
+                  "mprotect",
+                  "nanosleep",
+                  "open",
+                  "openat",
+                  "pipe",
+                  "pipe2",
+                  "poll",
+                  "prctl",
+                  "read",
+                  "recvfrom",
+                  "recvmsg",
+                  "rt_sigaction",
+                  "rt_sigprocmask",
+                  "rt_sigreturn",
+                  "select",
+                  "sendmsg",
+                  "sendto",
+                  "set_tid_address",
+                  "setgid",
+                  "setgroups",
+                  "setuid",
+                  "socket",
+                  "socketpair",
+                  "stat",
+                  "statfs",
+                  "sysinfo",
+                  "umask",
+                  "uname",
+                  "wait4",
+                  "write",
+                  "writev"
+                ],
+                "action": "SCMP_ACT_ALLOW"
+              }
+            ]
+          }
+          EOF
+          echo "Seccomp profile created at .docker/seccomp/phoenix-orch-profile.json"
+
+      - name: Upload Seccomp Profile
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-profiles
+          path: .docker/seccomp/

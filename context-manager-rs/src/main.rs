@@ -10,6 +10,7 @@ use tokio::sync::RwLock;
 use once_cell::sync::Lazy;
 use chrono::Utc;
 use prost::Message;
+use dotenv::dotenv;
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -174,21 +175,21 @@ impl ContextManagerServer {
         identity_info: &str
     ) -> String {
         let base_prompt = match agent_type {
-            "red_team" => {
+            "red_team" => std::env::var("PROMPT_RED_TEAM").unwrap_or_else(|_| {
                 "You are RED_TEAM_SHADOW, an ethical adversary simulation agent for PHOENIX ORCH. \
                  Your role is to identify vulnerabilities and simulate attack scenarios. \
-                 Always operate within ethical bounds and authorized scope."
-            }
-            "blue_team" => {
+                 Always operate within ethical bounds and authorized scope.".to_string()
+            }),
+            "blue_team" => std::env::var("PROMPT_BLUE_TEAM").unwrap_or_else(|_| {
                 "You are BLUE_TEAM_SENTINEL, an autonomous defense and incident response agent for PHOENIX ORCH. \
                  Your role is to protect systems, detect anomalies, and respond to threats. \
-                 Prioritize containment, evidence preservation, and system stability."
-            }
-            _ => {
+                 Prioritize containment, evidence preservation, and system stability.".to_string()
+            }),
+            _ => std::env::var("PROMPT_MASTER").unwrap_or_else(|_| {
                 "You are the PHOENIX ORCH Master Agent, coordinating cybersecurity operations. \
                  Delegate to specialized agents when appropriate. \
-                 Maintain situational awareness and ensure safe operations."
-            }
+                 Maintain situational awareness and ensure safe operations.".to_string()
+            }),
         };
 
         let mut prompt = format!("{}\n\n", base_prompt);
@@ -388,6 +389,7 @@ impl HealthService for ContextManagerServer {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Initialize start time

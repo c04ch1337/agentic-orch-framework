@@ -21,6 +21,11 @@ members = [
     "red-team-rs",
     "blue-team-rs",
     "api-gateway-rs",
+    "secrets-service-rs",
+    "input-validation-rs",
+    "config-rs",
+    "log-analyzer-rs",
+    "curiosity-engine-rs",
 ]
 
 [profile.release]

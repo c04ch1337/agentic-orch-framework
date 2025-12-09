@@ -1,0 +1,138 @@
+# Secure Storage Class for encrypted volumes
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: phoenix-secure-storage
+  namespace: phoenix-orch
+provisioner: kubernetes.io/aws-ebs  # Adjust based on your cloud provider
+parameters:
+  type: gp3
+  encrypted: "true"
+  kmsKeyId: "arn:aws:kms:us-west-2:111122223333:key/1234abcd-12ab-34cd-56ef-1234567890ab"  # Replace with your KMS key
+  fsType: ext4
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: false
+---
+# Persistent Volume Claims for services that require persistent data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: secrets-service-data
+  namespace: phoenix-orch
+  annotations:
+    kubernetes.io/description: "Encrypted volume for Phoenix ORCH Secrets Service"
+spec:
+  storageClassName: phoenix-secure-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-service-data
+  namespace: phoenix-orch
+  annotations:
+    kubernetes.io/description: "Persistent volume for LLM Service data"
+spec:
+  storageClassName: phoenix-secure-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mind-kb-data
+  namespace: phoenix-orch
+  annotations:
+    kubernetes.io/description: "Vector database storage for Mind Knowledge Base"
+spec:
+  storageClassName: phoenix-secure-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: logging-service-data
+  namespace: phoenix-orch
+  annotations:
+    kubernetes.io/description: "Persistent storage for system logs"
+spec:
+  storageClassName: phoenix-secure-storage
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+---
+# Ephemeral Volume Configuration
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ephemeral-volume-example
+  namespace: phoenix-orch
+  # This is an example pod configuration, not meant to be deployed directly
+spec:
+  containers:
+  - name: ephemeral-container
+    image: placeholder
+    volumeMounts:
+    - name: ephemeral-storage
+      mountPath: /tmp
+      readOnly: false
+  volumes:
+  - name: ephemeral-storage
+    emptyDir:
+      medium: Memory  # Uses tmpfs for enhanced security
+      sizeLimit: 256Mi
+---
+# ConfigMap for volume mount permissions and security configurations
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volume-security-config
+  namespace: phoenix-orch
+data:
+  volume-permissions.sh: |
+    #!/bin/sh
+    # This script sets proper permissions for mounted volumes
+    # It is intended to be run as an init container
+    
+    chown -R 1000:3000 /data
+    chmod -R 750 /data
+    
+    # Create specific directories with more restrictive permissions
+    if [ -d "/data/secrets" ]; then
+      chmod 700 /data/secrets
+    fi
+    
+    # Set immutable flag on sensitive files
+    if [ -f "/data/config/security-policy.json" ]; then
+      chattr +i /data/config/security-policy.json
+    fi
+  
+  mount-audit.sh: |
+    #!/bin/sh
+    # This script audits volume mounts for security compliance
+    
+    echo "Performing mount audit"
+    mount | grep "/data" | grep -v "noexec"
+    if [ $? -eq 0 ]; then
+      echo "WARNING: Detected mount without noexec option"
+    fi
+    
+    # Check for sensitive data in mounted volumes
+    find /data -type f -name "*.key" -o -name "*.pem" | grep -v "/data/secrets"
+    if [ $? -eq 0 ]; then
+      echo "WARNING: Sensitive files found outside of secrets directory"
+    fi

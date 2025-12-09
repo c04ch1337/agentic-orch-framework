@@ -1,0 +1,434 @@
+syntax = "proto3";
+
+package phoenix_orch.auth_service;
+
+option java_multiple_files = true;
+option java_package = "phoenix.orch.auth_service";
+
+// Import common definitions
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// Auth service provides centralized authentication, authorization, and identity management
+service AuthService {
+  // Authentication
+  rpc ValidateToken (ValidateTokenRequest) returns (ValidateTokenResponse);
+  rpc GenerateToken (GenerateTokenRequest) returns (GenerateTokenResponse);
+  rpc RenewToken (RenewTokenRequest) returns (RenewTokenResponse);
+  rpc RevokeToken (TokenRevokeRequest) returns (TokenRevokeResponse);
+  rpc ValidateApiKey (ValidateApiKeyRequest) returns (ValidateApiKeyResponse);
+  
+  // Authorization
+  rpc CheckPermission (CheckPermissionRequest) returns (CheckPermissionResponse);
+  rpc GetUserPermissions (GetUserPermissionsRequest) returns (GetUserPermissionsResponse);
+  
+  // Role Management
+  rpc CreateRole (CreateRoleRequest) returns (RoleResponse);
+  rpc GetRole (GetRoleRequest) returns (RoleResponse);
+  rpc UpdateRole (UpdateRoleRequest) returns (RoleResponse);
+  rpc DeleteRole (DeleteRoleRequest) returns (google.protobuf.Empty);
+  rpc ListRoles (ListRolesRequest) returns (ListRolesResponse);
+  rpc AddUserToRole (AddUserToRoleRequest) returns (google.protobuf.Empty);
+  rpc RemoveUserFromRole (RemoveUserFromRoleRequest) returns (google.protobuf.Empty);
+  
+  // User Management
+  rpc CreateUser (CreateUserRequest) returns (UserResponse);
+  rpc GetUser (GetUserRequest) returns (UserResponse);
+  rpc UpdateUser (UpdateUserRequest) returns (UserResponse);
+  rpc DeleteUser (DeleteUserRequest) returns (google.protobuf.Empty);
+  rpc ListUsers (ListUsersRequest) returns (ListUsersResponse);
+  
+  // Service Identity Management
+  rpc RegisterService (RegisterServiceRequest) returns (ServiceResponse);
+  rpc GetService (GetServiceRequest) returns (ServiceResponse);
+  rpc UpdateService (UpdateServiceRequest) returns (ServiceResponse);
+  rpc DeleteService (DeleteServiceRequest) returns (google.protobuf.Empty);
+  rpc ListServices (ListServicesRequest) returns (ListServicesResponse);
+  
+  // Certificate Management for mTLS
+  rpc GenerateServiceCertificate (GenerateCertRequest) returns (CertificateResponse);
+  rpc RevokeCertificate (RevokeCertRequest) returns (google.protobuf.Empty);
+  rpc GetCertificateStatus (GetCertStatusRequest) returns (CertStatusResponse);
+  
+  // Audit Logging
+  rpc GetAuditLogs (GetAuditLogsRequest) returns (GetAuditLogsResponse);
+  rpc PushAuditLog (PushAuditLogRequest) returns (google.protobuf.Empty);
+  
+  // Health Check
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+// Token related messages
+message TokenData {
+  string token = 1;
+  string subject = 2;  // User or service ID
+  repeated string roles = 3;
+  repeated string permissions = 4;
+  optional int64 issued_at = 5;
+  optional int64 expires_at = 6;
+  map<string, string> metadata = 7;
+}
+
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+message ValidateTokenResponse {
+  bool is_valid = 1;
+  optional TokenData token_data = 2;
+}
+
+message GenerateTokenRequest {
+  string client_id = 1;
+  string client_secret = 2;
+  optional string service_id = 3;
+  repeated string roles = 4;
+  optional int64 expires_in_seconds = 5;
+  map<string, string> metadata = 6;
+}
+
+message GenerateTokenResponse {
+  optional TokenData token_data = 1;
+}
+
+message RenewTokenRequest {
+  string token = 1;
+  optional int64 expires_in_seconds = 2;
+}
+
+message RenewTokenResponse {
+  optional TokenData token_data = 1;
+}
+
+message TokenRevokeRequest {
+  string token = 1;
+  bool revoke_all = 2;  // If true, revoke all tokens for the user/service
+}
+
+message TokenRevokeResponse {
+  bool success = 1;
+  int32 tokens_revoked = 2;
+}
+
+message ValidateApiKeyRequest {
+  string api_key = 1;
+  string service_id = 2;
+}
+
+message ValidateApiKeyResponse {
+  bool is_valid = 1;
+  optional TokenData token_data = 2;
+}
+
+// Permission related messages
+message CheckPermissionRequest {
+  string token = 1;
+  string permission = 2;
+  string service_id = 3;
+  optional string resource = 4;  // Optional resource-specific check
+}
+
+message CheckPermissionResponse {
+  bool has_permission = 1;
+}
+
+message GetUserPermissionsRequest {
+  string user_id = 1;
+  optional string service_id = 2;
+}
+
+message GetUserPermissionsResponse {
+  repeated Permission permissions = 1;
+}
+
+message Permission {
+  string name = 1;
+  string description = 2;
+  string service_id = 3;
+  string resource_type = 4;
+}
+
+// Role Management
+message Role {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string permissions = 4;
+  repeated string users = 5;
+  optional bool is_system_role = 6;
+  optional int64 created_at = 7;
+  optional int64 updated_at = 8;
+}
+
+message CreateRoleRequest {
+  string name = 1;
+  string description = 2;
+  repeated string permissions = 3;
+}
+
+message GetRoleRequest {
+  string id = 1;
+}
+
+message UpdateRoleRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  repeated string permissions = 4;
+}
+
+message DeleteRoleRequest {
+  string id = 1;
+}
+
+message ListRolesRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  optional string filter = 3;
+}
+
+message ListRolesResponse {
+  repeated Role roles = 1;
+  optional string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+message AddUserToRoleRequest {
+  string role_id = 1;
+  string user_id = 2;
+}
+
+message RemoveUserFromRoleRequest {
+  string role_id = 1;
+  string user_id = 2;
+}
+
+message RoleResponse {
+  Role role = 1;
+}
+
+// User Management
+message User {
+  string id = 1;
+  string username = 2;
+  string email = 3;
+  repeated string roles = 4;
+  UserStatus status = 5;
+  optional int64 created_at = 6;
+  optional int64 updated_at = 7;
+  optional int64 last_login = 8;
+}
+
+enum UserStatus {
+  ACTIVE = 0;
+  INACTIVE = 1;
+  LOCKED = 2;
+  PENDING = 3;
+}
+
+message CreateUserRequest {
+  string username = 1;
+  string email = 2;
+  string password = 3;
+  repeated string roles = 4;
+}
+
+message GetUserRequest {
+  string id = 1;
+}
+
+message UpdateUserRequest {
+  string id = 1;
+  optional string username = 2;
+  optional string email = 3;
+  optional string password = 4;
+  repeated string roles = 5;
+  optional UserStatus status = 6;
+}
+
+message DeleteUserRequest {
+  string id = 1;
+}
+
+message ListUsersRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  optional string filter = 3;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  optional string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+message UserResponse {
+  User user = 1;
+}
+
+// Service Identity Management
+message Service {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  repeated string roles = 4;
+  ServiceStatus status = 5;
+  repeated string allowed_origins = 6;
+  repeated string allowed_redirect_urls = 7;
+  optional int64 created_at = 8;
+  optional int64 updated_at = 9;
+}
+
+enum ServiceStatus {
+  ACTIVE = 0;
+  INACTIVE = 1;
+  MAINTENANCE = 2;
+  DEPRECATED = 3;
+}
+
+message RegisterServiceRequest {
+  string name = 1;
+  string description = 2;
+  repeated string roles = 3;
+  repeated string allowed_origins = 4;
+  repeated string allowed_redirect_urls = 5;
+}
+
+message GetServiceRequest {
+  string id = 1;
+}
+
+message UpdateServiceRequest {
+  string id = 1;
+  optional string name = 2;
+  optional string description = 3;
+  repeated string roles = 4;
+  optional ServiceStatus status = 5;
+  repeated string allowed_origins = 6;
+  repeated string allowed_redirect_urls = 7;
+}
+
+message DeleteServiceRequest {
+  string id = 1;
+}
+
+message ListServicesRequest {
+  optional int32 page_size = 1;
+  optional string page_token = 2;
+  optional string filter = 3;
+}
+
+message ListServicesResponse {
+  repeated Service services = 1;
+  optional string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+message ServiceResponse {
+  Service service = 1;
+}
+
+// Certificate Management for mTLS
+message GenerateCertRequest {
+  string service_id = 1;
+  optional int32 valid_days = 2;  // Default: 365 days
+  optional bool is_ca = 3;  // Is this a CA certificate
+  repeated string san_dns = 4;  // Subject Alternative Name - DNS
+  repeated string san_ips = 5;  // Subject Alternative Name - IPs
+}
+
+message CertificateResponse {
+  string cert_pem = 1;  // PEM encoded certificate
+  string key_pem = 2;   // PEM encoded private key
+  string cert_id = 3;   // Certificate ID
+  int64 not_before = 4; // Valid from timestamp
+  int64 not_after = 5;  // Valid until timestamp
+  string subject = 6;   // Certificate subject
+  string issuer = 7;    // Certificate issuer
+  repeated string san_dns = 8;  // Subject Alternative Names - DNS
+  repeated string san_ips = 9;  // Subject Alternative Names - IPs
+  string fingerprint = 10;      // Certificate fingerprint
+}
+
+message RevokeCertRequest {
+  string cert_id = 1;
+  optional string reason = 2;
+}
+
+message GetCertStatusRequest {
+  string cert_id = 1;
+}
+
+message CertStatusResponse {
+  string cert_id = 1;
+  CertStatus status = 2;
+  optional string revocation_reason = 3;
+  optional int64 revocation_time = 4;
+  int64 not_before = 5;
+  int64 not_after = 6;
+  bool is_expired = 7;
+}
+
+enum CertStatus {
+  VALID = 0;
+  REVOKED = 1;
+  EXPIRED = 2;
+  PENDING = 3;
+}
+
+// Audit Logging
+message AuditLog {
+  string id = 1;
+  string event_type = 2;
+  string actor = 3;  // Who performed the action (user_id, service_id)
+  string action = 4;
+  string resource_type = 5;
+  string resource_id = 6;
+  string service_id = 7;  // Which service generated this log
+  map<string, string> metadata = 8;
+  string status = 9;  // SUCCESS, FAILURE, etc.
+  int64 timestamp = 10;
+  string client_ip = 11;
+  optional string session_id = 12;
+  optional string request_id = 13;
+}
+
+message GetAuditLogsRequest {
+  optional string filter = 1;  // Filter expression
+  optional int32 page_size = 2;
+  optional string page_token = 3;
+  optional string sort_by = 4;  // Field to sort by
+  optional bool sort_desc = 5;  // Sort descending if true
+  optional int64 start_time = 6;  // Filter by time range
+  optional int64 end_time = 7;    // Filter by time range
+}
+
+message GetAuditLogsResponse {
+  repeated AuditLog logs = 1;
+  optional string next_page_token = 2;
+  int32 total_count = 3;
+}
+
+message PushAuditLogRequest {
+  string event_type = 1;
+  string actor = 2;
+  string action = 3;
+  string resource_type = 4;
+  string resource_id = 5;
+  string service_id = 6;
+  map<string, string> metadata = 7;
+  string status = 8;
+  optional string client_ip = 9;
+  optional string session_id = 10;
+  optional string request_id = 11;
+}
+
+// Health Check
+message HealthCheckRequest {
+  // Empty request
+}
+
+message HealthCheckResponse {
+  string status = 1;  // "SERVING", "NOT_SERVING", etc.
+  map<string, string> details = 2;  
+}

@@ -1,0 +1,61 @@
+# Dev Dockerfile for auth-service
+FROM rust:1.73-slim-bullseye as builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy Cargo files for dependency caching
+COPY Cargo.toml .
+COPY build.rs .
+
+# Create empty source files to satisfy rust build
+RUN mkdir -p src && \
+    echo "fn main() {println!(\"if you see this, cargo has not found the real main.rs\")}" > src/main.rs
+
+# Build dependencies only (this layer will be cached)
+RUN cargo build --release
+
+# Now copy the actual source code
+COPY src src
+COPY ../.proto ../.proto
+
+# Build the actual binary (with the real source code)
+RUN touch src/main.rs && \
+    cargo build --release
+
+# Runtime image
+FROM debian:bullseye-slim
+
+# Install runtime dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl1.1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary from the builder
+COPY --from=builder /app/target/release/auth-service-rs .
+
+# Create a non-root user to run the service
+RUN useradd -m authservice && \
+    chown -R authservice:authservice /app
+
+USER authservice
+
+# Create directory for runtime config
+RUN mkdir -p /app/config
+
+# Expose the service port
+EXPOSE 50090
+
+# Command to run the service
+CMD ["./auth-service-rs"]

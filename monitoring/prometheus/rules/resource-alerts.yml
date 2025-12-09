@@ -1,0 +1,114 @@
+groups:
+- name: container_alerts
+  rules:
+  # Container CPU usage alerts
+  - alert: ContainerCpuUsageHigh
+    expr: (sum(rate(container_cpu_usage_seconds_total{name!=""}[3m])) by (name) * 100) > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Container CPU usage high (> 85%)"
+      description: "Container {{ $labels.name }} CPU usage has been above 85% for 5 minutes.\nCurrent value: {{ $value }}%"
+
+  - alert: ContainerCpuUsageCritical
+    expr: (sum(rate(container_cpu_usage_seconds_total{name!=""}[3m])) by (name) * 100) > 95
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Container CPU usage critical (> 95%)"
+      description: "Container {{ $labels.name }} CPU usage has been above 95% for 2 minutes.\nCurrent value: {{ $value }}%"
+
+  # Container memory usage alerts
+  - alert: ContainerMemoryUsageHigh
+    expr: (container_memory_usage_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} * 100) > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Container memory usage high (> 85%)"
+      description: "Container {{ $labels.name }} memory usage has been above 85% for 5 minutes.\nCurrent value: {{ $value }}%"
+
+  - alert: ContainerMemoryUsageCritical
+    expr: (container_memory_usage_bytes{name!=""} / container_spec_memory_limit_bytes{name!=""} * 100) > 95
+    for: 2m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Container memory usage critical (> 95%)"
+      description: "Container {{ $labels.name }} memory usage has been above 95% for 2 minutes.\nCurrent value: {{ $value }}%"
+
+  # Container restart alerts
+  - alert: ContainerRestarting
+    expr: changes(container_start_time_seconds{name!=""}[15m]) > 2
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Container restarting frequently"
+      description: "Container {{ $labels.name }} has restarted more than 2 times in the last 15 minutes.\nCurrent value: {{ $value }} restarts"
+
+- name: host_alerts
+  rules:
+  # Host CPU usage alerts
+  - alert: HostCpuUsageHigh
+    expr: (1 - avg(irate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance)) * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Host CPU usage high (> 85%)"
+      description: "Host {{ $labels.instance }} CPU usage has been above 85% for 5 minutes.\nCurrent value: {{ $value }}%"
+
+  # Host memory usage alerts
+  - alert: HostMemoryUsageHigh
+    expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Host memory usage high (> 85%)"
+      description: "Host {{ $labels.instance }} memory usage has been above 85% for 5 minutes.\nCurrent value: {{ $value }}%"
+
+  # Disk space alerts
+  - alert: HostDiskSpaceUsageHigh
+    expr: (node_filesystem_size_bytes - node_filesystem_free_bytes) / node_filesystem_size_bytes * 100 > 85
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Host disk space usage high (> 85%)"
+      description: "Host {{ $labels.instance }} disk space usage has been above 85% for 5 minutes.\nCurrent value: {{ $value }}%"
+
+- name: service_alerts
+  rules:
+  # Service health alerts
+  - alert: ServiceDown
+    expr: up == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Service {{ $labels.job }} on {{ $labels.instance }} is down"
+      description: "Service {{ $labels.job }} on instance {{ $labels.instance }} has been down for more than 1 minute"
+      
+  # Service latency alerts (replace with appropriate metrics for your services)
+  - alert: ServiceLatencyHigh
+    expr: http_request_duration_seconds{quantile="0.9"} > 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Service latency high"
+      description: "Service {{ $labels.job }} on {{ $labels.instance }} has 90th percentile latency over 1s for 5 minutes"
+
+  # LLM service specific alerts
+  - alert: LlmServiceErrorRateHigh
+    expr: rate(http_request_errors_total{job="llm-service"}[5m]) / rate(http_requests_total{job="llm-service"}[5m]) * 100 > 5
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "LLM service error rate high (> 5%)"
+      description: "LLM service error rate has been above 5% for 5 minutes.\nCurrent value: {{ $value }}%"

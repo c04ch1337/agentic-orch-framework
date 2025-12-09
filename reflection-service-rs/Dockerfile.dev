@@ -1,0 +1,39 @@
+# reflection-service-rs/Dockerfile.dev
+# Development Dockerfile for Reflection Service
+
+FROM rust:1.74-slim-bullseye as builder
+
+WORKDIR /usr/src/reflection-service-rs
+
+# Copy the Cargo files for dependency resolution
+COPY Cargo.toml .
+COPY build.rs .
+
+# Create dummy source file to build dependencies
+RUN mkdir src && \
+    echo "fn main() {println!(\"if you see this, the build broke\");}" > src/main.rs && \
+    cargo build && \
+    rm -rf src
+
+# Copy the real source code
+COPY . .
+
+# Build the application with optimizations
+RUN cargo build --release
+
+# Create a slimmer runtime image
+FROM debian:bullseye-slim
+
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/src/reflection-service-rs/target/release/reflection-service-rs /usr/local/bin/reflection-service-rs
+
+# Port used by the service
+EXPOSE 50065
+
+# Set environment variables
+ENV RUST_LOG=info
+ENV REFLECTION_SERVICE_PORT=50065
+
+# Run the service when the container launches
+CMD ["reflection-service-rs"]

@@ -1,0 +1,33 @@
+[package]
+name = "input-validation-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Input validation and sanitization library for Phoenix ORCH AGI system"
+
+[dependencies]
+# Core dependencies
+thiserror = "1.0"
+regex = "1.9"
+lazy_static = "1.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+url = "2.4"
+uuid = { version = "1.4", features = ["v4"] }
+log = "0.4"
+unicode-normalization = "0.1"
+
+# Validator dependencies
+validator = "0.16"
+regex-syntax = "0.7"
+
+# Path validation
+path-absolutize = "3.1"
+pathdiff = "0.2"
+
+# Protection against ReDOS
+regex-automata = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1.28", features = ["full"] }
+tokio-test = "0.4"
+test-case = "3.1"

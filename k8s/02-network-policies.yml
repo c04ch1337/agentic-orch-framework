@@ -1,0 +1,216 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: phoenix-orch-default-deny
+  namespace: phoenix-orch
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orchestrator-policy
+  namespace: phoenix-orch
+spec:
+  podSelector:
+    matchLabels:
+      app: orchestrator
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: api-gateway
+    ports:
+    - protocol: TCP
+      port: 50051
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: data-router
+    ports:
+    - protocol: TCP
+      port: 50052
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: reflection
+    ports:
+    - protocol: TCP
+      port: 50065
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: data-router-policy
+  namespace: phoenix-orch
+spec:
+  podSelector:
+    matchLabels:
+      app: data-router
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: orchestrator
+    ports:
+    - protocol: TCP
+      port: 50052
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: llm-service
+    ports:
+    - protocol: TCP
+      port: 50053
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: tools-service
+    ports:
+    - protocol: TCP
+      port: 50054
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: safety-service
+    ports:
+    - protocol: TCP
+      port: 50055
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: logging-service
+    ports:
+    - protocol: TCP
+      port: 50056
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchExpression:
+          key: app
+          operator: In
+          values: [mind-kb, body-kb, heart-kb, social-kb, soul-kb]
+    ports:
+    - protocol: TCP
+      port: 50057
+    - protocol: TCP
+      port: 50058
+    - protocol: TCP
+      port: 50059
+    - protocol: TCP
+      port: 50060
+    - protocol: TCP
+      port: 50061
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          app: context-manager
+    ports:
+    - protocol: TCP
+      port: 50064
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: secrets-service-policy
+  namespace: phoenix-orch
+spec:
+  podSelector:
+    matchLabels:
+      app: secrets-service
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: phoenix-orch
+      podSelector:
+        matchLabels:
+          tier: core-service
+    ports:
+    - protocol: TCP
+      port: 50080
+  egress: []  # No outbound connections allowed for the secrets service
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring
+  namespace: phoenix-orch
+spec:
+  podSelector: {}  # Applies to all pods in the namespace
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 9100  # node exporter metrics port
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dns-policy
+  namespace: phoenix-orch
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

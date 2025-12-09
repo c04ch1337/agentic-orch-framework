@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package curiosity_engine;
+
+service CuriosityEngine {
+  rpc GenerateResearchTask(KnowledgeGap) returns (ScheduledTask);
+}
+
+message KnowledgeGap {
+  string id = 1;
+  string description = 2;
+  double utility_score = 3;
+}
+
+message ScheduledTask {
+  string id = 1;
+  string description = 2;
+  int32 priority = 3; // Higher values indicate higher priority
+}

@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: phoenix-orch-quota
+  namespace: phoenix-orch
+spec:
+  hard:
+    # Compute resource limits
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    
+    # Object count limits
+    pods: "50"
+    services: "30"
+    secrets: "50"
+    configmaps: "30"
+    persistentvolumeclaims: "20"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: phoenix-orch-limit-range
+  namespace: phoenix-orch
+spec:
+  limits:
+  # Default container limits
+  - type: Container
+    default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 100m
+      memory: 256Mi
+    max:
+      cpu: "4"
+      memory: 8Gi
+    min:
+      cpu: 50m
+      memory: 128Mi
+  
+  # Default pod limits
+  - type: Pod
+    max:
+      cpu: "8"
+      memory: 16Gi

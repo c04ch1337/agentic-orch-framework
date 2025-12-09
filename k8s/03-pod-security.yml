@@ -1,0 +1,96 @@
+# Security Context Configuration for enforcing pod security standards
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: phoenix-orch-sa
+  namespace: phoenix-orch
+---
+# Security Context Configuration for Pods
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: security-defaults
+  namespace: phoenix-orch
+  labels:
+    app: security-defaults
+spec:
+  replicas: 0  # This is just a template, not meant to be deployed
+  selector:
+    matchLabels:
+      app: security-defaults
+  template:
+    metadata:
+      labels:
+        app: security-defaults
+    spec:
+      serviceAccountName: phoenix-orch-sa
+      # Pod-level security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: security-template
+        image: placeholder
+        # Container-level security context
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE  # Only if required for binding to privileged ports
+          seccompProfile:
+            type: RuntimeDefault
+---
+# Pod Security Standards using Kubernetes native policy
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: phoenix-orch  # This is a duplicate, but added here to include security annotations
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: latest
+---
+# Define role-based access control (RBAC) for the service account
+# This limits permissions to only what's necessary
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: phoenix-orch-role
+  namespace: phoenix-orch
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get", "list"]
+---
+# Bind the role to the service account
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: phoenix-orch-rolebinding
+  namespace: phoenix-orch
+subjects:
+- kind: ServiceAccount
+  name: phoenix-orch-sa
+  namespace: phoenix-orch
+roleRef:
+  kind: Role
+  name: phoenix-orch-role
+  apiGroup: rbac.authorization.k8s.io
