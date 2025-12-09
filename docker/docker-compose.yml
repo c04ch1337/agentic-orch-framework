@@ -7,8 +7,763 @@ services:
   # --- Core Services ---
   orchestrator:
     build:
-      context: .
+      context: ..
       dockerfile: ./orchestrator-service-rs/Dockerfile
+    image: orchestrator-service-rs:${TAG:-latest}
+    container_name: orchestrator-service
+    ports:
+      - "${ORCHESTRATOR_PORT:-50051}:50051"
+    environment:
+      - DATA_ROUTER_ADDR=http://data-router:50052
+      - REFLECTION_SERVICE_ADDR=http://reflection:50065
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - orchestrator_data:/app/data
+    networks:
+      - agi_network
+      - orchestrator_network
+    depends_on:
+      data-router:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50051" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  data-router:
+    build:
+      context: ..
+      dockerfile: ./data-router-rs/Dockerfile
+    image: data-router-rs:${TAG:-latest}
+    container_name: data-router-service
+    ports:
+      - "${DATA_ROUTER_PORT:-50052}:50052"
+    environment:
+      - LLM_SERVICE_ADDR=http://llm-service:50053
+      - TOOLS_SERVICE_ADDR=http://tools-service:50054
+      - SAFETY_SERVICE_ADDR=http://safety-service:50055
+      - LOGGING_SERVICE_ADDR=http://logging-service:50056
+      - MIND_KB_ADDR=http://mind-kb:50057
+      - BODY_KB_ADDR=http://body-kb:50058
+      - HEART_KB_ADDR=http://heart-kb:50059
+      - SOCIAL_KB_ADDR=http://social-kb:50060
+      - SOUL_KB_ADDR=http://soul-kb:50061
+      - CONTEXT_MANAGER_ADDR=http://context-manager:50064
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - data_router_data:/app/data
+    networks:
+      - agi_network
+      - data_router_network
+    depends_on:
+      llm-service:
+        condition: service_healthy
+      safety-service:
+        condition: service_healthy
+      logging-service:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.2'
+        reservations:
+          memory: 768M
+          cpus: '0.5'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50052" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  llm-service:
+    build:
+      context: ..
+      dockerfile: ./llm-service-rs/Dockerfile
+    image: llm-service-rs:${TAG:-latest}
+    container_name: llm-service
+    ports:
+      - "${LLM_SERVICE_PORT:-50053}:50053"
+    environment:
+      - LLM_SERVICE_ADDR=0.0.0.0:50053
+      - LLM_API_URL=${LLM_API_URL:-https://openrouter.ai/api/v1/chat/completions}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-3.5-sonnet}
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - llm_service_data:/app/data
+    networks:
+      - agi_network
+      - llm_service_network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.5'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50053" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  tools-service:
+    build:
+      context: ..
+      dockerfile: ./tools-service-rs/Dockerfile
+    image: tools-service-rs:${TAG:-latest}
+    container_name: tools-service
+    ports:
+      - "${TOOLS_SERVICE_PORT:-50054}:50054"
+    environment:
+      - TOOLS_SERVICE_ADDR=0.0.0.0:50054
+      - EXECUTOR_ADDR=http://executor:50062
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - tools_service_data:/app/data
+    networks:
+      - agi_network
+      - tools_service_network
+    depends_on:
+      executor:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50054" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  safety-service:
+    build:
+      context: ..
+      dockerfile: ./safety-service-rs/Dockerfile
+    image: safety-service-rs:${TAG:-latest}
+    container_name: safety-service
+    ports:
+      - "${SAFETY_SERVICE_PORT:-50055}:50055"
+    environment:
+      - SAFETY_SERVICE_ADDR=0.0.0.0:50055
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - safety_service_data:/app/data
+    networks:
+      - agi_network
+      - safety_service_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50055" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  logging-service:
+    build:
+      context: ..
+      dockerfile: ./logging-service-rs/Dockerfile
+    image: logging-service-rs:${TAG:-latest}
+    container_name: logging-service
+    ports:
+      - "${LOGGING_SERVICE_PORT:-50056}:50056"
+    environment:
+      - LOGGING_SERVICE_ADDR=0.0.0.0:50056
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - logging_service_data:/app/data
+    networks:
+      - agi_network
+      - logging_service_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50056" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Knowledge Bases ---
+  mind-kb:
+    build:
+      context: ..
+      dockerfile: ./mind-kb-rs/Dockerfile
+    image: mind-kb-rs:${TAG:-latest}
+    container_name: mind-kb
+    ports:
+      - "${MIND_KB_PORT:-50057}:50057"
+    environment:
+      - MIND_KB_ADDR=0.0.0.0:50057
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - mind_kb_data:/app/data
+    networks:
+      - agi_network
+      - mind_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50057" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  body-kb:
+    build:
+      context: ..
+      dockerfile: ./body-kb-rs/Dockerfile
+    image: body-kb-rs:${TAG:-latest}
+    container_name: body-kb
+    ports:
+      - "${BODY_KB_PORT:-50058}:50058"
+    environment:
+      - BODY_KB_ADDR=0.0.0.0:50058
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - body_kb_data:/app/data
+    networks:
+      - agi_network
+      - body_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50058" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  heart-kb:
+    build:
+      context: ..
+      dockerfile: ./heart-kb-rs/Dockerfile
+    image: heart-kb-rs:${TAG:-latest}
+    container_name: heart-kb
+    ports:
+      - "${HEART_KB_PORT:-50059}:50059"
+    environment:
+      - HEART_KB_ADDR=0.0.0.0:50059
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - heart_kb_data:/app/data
+    networks:
+      - agi_network
+      - heart_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50059" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  social-kb:
+    build:
+      context: ..
+      dockerfile: ./social-kb-rs/Dockerfile
+    image: social-kb-rs:${TAG:-latest}
+    container_name: social-kb
+    ports:
+      - "${SOCIAL_KB_PORT:-50060}:50060"
+    environment:
+      - SOCIAL_KB_ADDR=0.0.0.0:50060
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - social_kb_data:/app/data
+    networks:
+      - agi_network
+      - social_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50060" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  soul-kb:
+    build:
+      context: ..
+      dockerfile: ./soul-kb-rs/Dockerfile
+    image: soul-kb-rs:${TAG:-latest}
+    container_name: soul-kb
+    ports:
+      - "${SOUL_KB_PORT:-50061}:50061"
+    environment:
+      - SOUL_KB_ADDR=0.0.0.0:50061
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - soul_kb_data:/app/data
+    networks:
+      - agi_network
+      - soul_kb_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50061" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Phase 4 Services ---
+  executor:
+    build:
+      context: ..
+      dockerfile: ./executor-rs/Dockerfile
+    image: executor-rs:${TAG:-latest}
+    container_name: executor-service
+    ports:
+      - "${EXECUTOR_PORT:-50062}:50062"
+    environment:
+      - EXECUTOR_ADDR=0.0.0.0:50062
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - executor_data:/app/data
+    networks:
+      - agi_network
+      - executor_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50062" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Phase 5 Services ---
+  context-manager:
+    build:
+      context: ..
+      dockerfile: ./context-manager-rs/Dockerfile
+    image: context-manager-rs:${TAG:-latest}
+    container_name: context-manager-service
+    ports:
+      - "${CONTEXT_MANAGER_PORT:-50064}:50064"
+    environment:
+      - CONTEXT_MANAGER_ADDR=0.0.0.0:50064
+      - MIND_KB_ADDR=http://mind-kb:50057
+      - BODY_KB_ADDR=http://body-kb:50058
+      - HEART_KB_ADDR=http://heart-kb:50059
+      - SOCIAL_KB_ADDR=http://social-kb:50060
+      - SOUL_KB_ADDR=http://soul-kb:50061
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - context_manager_data:/app/data
+    networks:
+      - agi_network
+      - context_manager_network
+    depends_on:
+      mind-kb:
+        condition: service_healthy
+      body-kb:
+        condition: service_healthy
+      heart-kb:
+        condition: service_healthy
+      social-kb:
+        condition: service_healthy
+      soul-kb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50064" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  reflection:
+    build:
+      context: ..
+      dockerfile: ./reflection-rs/Dockerfile
+    image: reflection-rs:${TAG:-latest}
+    container_name: reflection-service
+    ports:
+      - "${REFLECTION_PORT:-50065}:50065"
+    environment:
+      - REFLECTION_SERVICE_ADDR=0.0.0.0:50065
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - reflection_data:/app/data
+    networks:
+      - agi_network
+      - reflection_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50065" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: ./scheduler-rs/Dockerfile
+    image: scheduler-rs:${TAG:-latest}
+    container_name: scheduler-service
+    ports:
+      - "${SCHEDULER_PORT:-50066}:50066"
+    environment:
+      - SCHEDULER_SERVICE_ADDR=0.0.0.0:50066
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - scheduler_data:/app/data
+    networks:
+      - agi_network
+      - scheduler_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50066" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  agent-registry:
+    build:
+      context: ..
+      dockerfile: ./agent-registry-rs/Dockerfile
+    image: agent-registry-rs:${TAG:-latest}
+    container_name: agent-registry-service
+    ports:
+      - "${AGENT_REGISTRY_PORT:-50067}:50067"
+    environment:
+      - AGENT_REGISTRY_ADDR=0.0.0.0:50067
+      - AGENT_REGISTRY_CONFIG=/app/config/agent_registry.toml
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - agent_registry_data:/app/data
+      - ../config:/app/config:ro
+    networks:
+      - agi_network
+      - agent_registry_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50067" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  log-analyzer:
+    build:
+      context: ..
+      dockerfile: ./log-analyzer-rs/Dockerfile
+    image: log-analyzer-rs:${TAG:-latest}
+    container_name: log-analyzer-service
+    ports:
+      - "${LOG_ANALYZER_PORT:-50075}:50075"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - log_analyzer_data:/app/data
+    networks:
+      - agi_network
+      - log_analyzer_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50075" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  curiosity-engine:
+    build:
+      context: ..
+      dockerfile: ./curiosity-engine-rs/Dockerfile
+    image: curiosity-engine-rs:${TAG:-latest}
+    container_name: curiosity-engine-service
+    ports:
+      - "${CURIOSITY_ENGINE_PORT:-50076}:50076"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      - curiosity_engine_data:/app/data
+    networks:
+      - agi_network
+      - curiosity_engine_network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    restart: on-failure:3
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:50076" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  # Added volumes for new services
+  qdrant_data:
+    driver: local
+  data_router_data:
+    driver: local
+  llm_service_data:
+    driver: local
+  tools_service_data:
+    driver: local
+  safety_service_data:
+    driver: local
+  logging_service_data:
+    driver: local
+  mind_kb_data:
+    driver: local
+  body_kb_data:
+    driver: local
+  heart_kb_data:
+    driver: local
+  social_kb_data:
+    driver: local
+  soul_kb_data:
+    driver: local
+  executor_data:
+    driver: local
+  context_manager_data:
+    driver: local
+  reflection_data:
+    driver: local
+  scheduler_data:
+    driver: local
+  agent_registry_data:
+    driver: local
+  log_analyzer_data:
+    driver: local
+  curiosity_engine_data:
+    driver: local
+
+networks:
+  agi_network:
+    name: agi_network
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.20.0.0/16
+
+  orchestrator_network:
+    internal: true
+  data_router_network:
+    internal: true
+  llm_service_network:
+    internal: true
+  tools_service_network:
+    internal: true
+  safety_service_network:
+    internal: true
+  logging_service_network:
+    internal: true
+  mind_kb_network:
+    internal: true
+  body_kb_network:
+    internal: true
+  heart_kb_network:
+    internal: true
+  social_kb_network:
+    internal: true
+  soul_kb_network:
+    internal: true
+  executor_network:
+    internal: true
+  context_manager_network:
+    internal: true
+  reflection_network:
+    internal: true
+  scheduler_network:
+    internal: true
+  agent_registry_network:
+    internal: true
+  log_analyzer_network:
+    internal: true
+  curiosity_engine_network:
+    internal: true
+
+  # --- Added Services for Production Deployment ---
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant-vector-db
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    networks:
+      - agi_network
+    restart: on-failure:3
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:6333/healthz" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis-cache
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: [ "redis-server", "--appendonly", "yes", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru" ]
+    volumes:
+      - redis_data:/data
+    networks:
+      - agi_network
+    restart: on-failure:3
+    deploy:
+      resources:
+        limits:
+          memory: 1.5G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.3'
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     image: orchestrator-service-rs:${TAG:-latest}
     container_name: orchestrator-service
     ports:

@@ -1,0 +1,42 @@
+# Security Metrics Configuration for Phoenix Orchestrator
+# This file defines scrape configurations for security-related metrics
+
+- job_name: 'security-metrics'
+  scrape_interval: 1h
+  static_configs:
+    - targets: ['security-metrics-exporter:9100']
+  metrics_path: /metrics
+  relabel_configs:
+    - source_labels: [__address__]
+      target_label: instance
+      replacement: 'security-metrics'
+
+- job_name: 'vulnerability-metrics'
+  scrape_interval: 6h
+  static_configs:
+    - targets: ['vulnerability-metrics-exporter:9101']
+  metrics_path: /metrics
+  relabel_configs:
+    - source_labels: [__address__]
+      target_label: instance
+      replacement: 'vulnerability-metrics'
+
+- job_name: 'dependency-metrics'
+  scrape_interval: 12h
+  static_configs:
+    - targets: ['dependency-metrics-exporter:9102']
+  metrics_path: /metrics
+  relabel_configs:
+    - source_labels: [__address__]
+      target_label: instance
+      replacement: 'dependency-metrics'
+
+- job_name: 'compliance-metrics'
+  scrape_interval: 24h
+  static_configs:
+    - targets: ['compliance-metrics-exporter:9103']
+  metrics_path: /metrics
+  relabel_configs:
+    - source_labels: [__address__]
+      target_label: instance
+      replacement: 'compliance-metrics'

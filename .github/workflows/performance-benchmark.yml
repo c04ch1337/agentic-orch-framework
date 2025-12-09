@@ -1,0 +1,227 @@
+name: Performance Benchmark Validation
+
+on:
+  schedule:
+    - cron: '0 1 * * 1'  # Run weekly on Mondays at 1 AM UTC
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run benchmarks against'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      scenario:
+        description: 'Test scenario to run'
+        required: true
+        default: 'baseline'
+        type: choice
+        options:
+          - baseline
+          - user-journey
+          - stress
+          - all
+
+jobs:
+  establish-baseline:
+    name: Establish Performance Baseline
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Docker Compose
+        run: |
+          docker-compose -f load-testing/docker-compose.yml up -d
+          
+      - name: Set test environment URL
+        id: env_url
+        run: |
+          if [[ "${{ github.event.inputs.environment || 'staging' }}" == "dev" ]]; then
+            echo "URL=http://dev.phoenix-orch.example.com" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event.inputs.environment || 'staging' }}" == "staging" ]]; then
+            echo "URL=http://staging.phoenix-orch.example.com" >> $GITHUB_OUTPUT
+          else
+            echo "URL=http://phoenix-orch.example.com" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Set test scenario
+        id: scenario
+        run: |
+          scenario="${{ github.event.inputs.scenario || 'baseline' }}"
+          if [[ "$scenario" == "all" ]]; then
+            echo "SCENARIOS=baseline user-journey stress" >> $GITHUB_OUTPUT
+          else
+            echo "SCENARIOS=$scenario" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Run load tests
+        run: |
+          mkdir -p benchmark-results
+          
+          for scenario in ${{ steps.scenario.outputs.SCENARIOS }}; do
+            echo "Running $scenario test..."
+            
+            # Set appropriate VUs and duration based on scenario
+            if [[ "$scenario" == "baseline" ]]; then
+              VUS=10
+              DURATION=60s
+            elif [[ "$scenario" == "user-journey" ]]; then
+              VUS=5
+              DURATION=120s
+            elif [[ "$scenario" == "stress" ]]; then
+              VUS=25
+              DURATION=180s
+            fi
+            
+            # Run the test
+            cd load-testing
+            ./run-test.sh $scenario ${{ steps.env_url.outputs.URL }} $VUS $DURATION
+            
+            # Copy results to benchmark results directory
+            cp ./results/aggregated/summary-report.json ../benchmark-results/$scenario-summary.json
+            
+            # Generate performance report
+            ./scripts/analyze-results.sh ./results/aggregated/summary-report.json > ../benchmark-results/$scenario-report.txt
+          done
+          
+      - name: Create combined benchmark report
+        run: |
+          echo "# Performance Benchmark Report" > benchmark-report.md
+          echo "Generated on: $(date)" >> benchmark-report.md
+          echo "Environment: ${{ github.event.inputs.environment || 'staging' }}" >> benchmark-report.md
+          echo "" >> benchmark-report.md
+          
+          for scenario in ${{ steps.scenario.outputs.SCENARIOS }}; do
+            echo "## $scenario Test Results" >> benchmark-report.md
+            echo "" >> benchmark-report.md
+            cat benchmark-results/$scenario-report.txt >> benchmark-report.md
+            echo "" >> benchmark-report.md
+          done
+          
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: benchmark-results/
+          
+      - name: Upload benchmark report
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-report
+          path: benchmark-report.md
+          
+      - name: Save as benchmark baseline
+        run: |
+          # Create benchmarks directory if it doesn't exist
+          mkdir -p load-testing/benchmarks
+          
+          # Save the latest results as the new baseline
+          for scenario in ${{ steps.scenario.outputs.SCENARIOS }}; do
+            cp benchmark-results/$scenario-summary.json load-testing/benchmarks/$scenario-baseline.json
+          done
+          
+          # If this is a scheduled run, commit the new benchmarks
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            git config --local user.email "actions@github.com"
+            git config --local user.name "GitHub Actions"
+            git add load-testing/benchmarks/*.json
+            git commit -m "Update performance benchmarks [skip ci]"
+            git push
+          fi
+
+  validate-performance:
+    name: Validate Performance Against Benchmark
+    runs-on: ubuntu-latest
+    needs: establish-baseline
+    if: github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Download benchmark results
+        uses: actions/download-artifact@v3
+        with:
+          name: benchmark-results
+          path: benchmark-results/
+          
+      - name: Set test scenario
+        id: scenario
+        run: |
+          scenario="${{ github.event.inputs.scenario || 'baseline' }}"
+          if [[ "$scenario" == "all" ]]; then
+            echo "SCENARIOS=baseline user-journey stress" >> $GITHUB_OUTPUT
+          else
+            echo "SCENARIOS=$scenario" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Compare against existing benchmarks
+        id: validation
+        run: |
+          echo "# Performance Validation Results" > validation-report.md
+          echo "Generated on: $(date)" >> validation-report.md
+          echo "Environment: ${{ github.event.inputs.environment || 'staging' }}" >> validation-report.md
+          echo "" >> validation-report.md
+          
+          all_passed=true
+          
+          for scenario in ${{ steps.scenario.outputs.SCENARIOS }}; do
+            echo "## $scenario Validation" >> validation-report.md
+            echo "" >> validation-report.md
+            
+            if [ -f "load-testing/benchmarks/$scenario-baseline.json" ]; then
+              echo "Comparing against existing baseline..." >> validation-report.md
+              cd load-testing
+              ./scripts/compare-benchmarks.sh ./benchmarks/$scenario-baseline.json ../benchmark-results/$scenario-summary.json > ../temp-validation.txt
+              cd ..
+              
+              # Check if any metrics failed the threshold
+              if grep -q "FAILED" temp-validation.txt; then
+                echo "❌ **Validation Failed**" >> validation-report.md
+                all_passed=false
+              else
+                echo "✅ **Validation Passed**" >> validation-report.md
+              fi
+              
+              cat temp-validation.txt >> validation-report.md
+            else
+              echo "No existing baseline found. Using current run as baseline." >> validation-report.md
+            fi
+            
+            echo "" >> validation-report.md
+          done
+          
+          # Set output variable for success/failure
+          if [ "$all_passed" = true ]; then
+            echo "VALIDATION_PASSED=true" >> $GITHUB_OUTPUT
+          else
+            echo "VALIDATION_PASSED=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Upload validation report
+        uses: actions/upload-artifact@v3
+        with:
+          name: validation-report
+          path: validation-report.md
+          
+      - name: Create GitHub Issue if validation fails
+        if: steps.validation.outputs.VALIDATION_PASSED == 'false'
+        run: |
+          ISSUE_TITLE="Performance Regression Detected in ${{ github.event.inputs.environment || 'staging' }}"
+          cat validation-report.md | gh issue create --title "$ISSUE_TITLE" --body-file -
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Notify on validation status
+        run: |
+          if [[ "${{ steps.validation.outputs.VALIDATION_PASSED }}" == "true" ]]; then
+            echo "Performance validation passed! Current performance meets or exceeds the baseline."
+          else
+            echo "Performance validation failed! Current performance is below the baseline."
+            exit 1
+          fi

@@ -1,0 +1,161 @@
+version: '3.9'
+
+# Security Metrics Stack for Phoenix Orchestrator
+# This stack provides security metrics exporters to complement the monitoring stack
+
+services:
+  security-metrics-exporter:
+    build:
+      context: ../load-testing/security-metrics-exporter
+      dockerfile: Dockerfile
+    container_name: security-metrics-exporter
+    ports:
+      - "9100:9100"
+    environment:
+      - METRICS_PORT=9100
+    restart: on-failure:3
+    networks:
+      - monitoring_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+  vulnerability-metrics-exporter:
+    build:
+      context: ../load-testing/security-metrics-exporter
+      dockerfile: Dockerfile
+    container_name: vulnerability-metrics-exporter
+    ports:
+      - "9101:9100"
+    environment:
+      - METRICS_PORT=9100
+    command: [ "python3", "security_metrics_exporter.py", "--exporter-type", "vulnerability" ]
+    restart: on-failure:3
+    networks:
+      - monitoring_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+  dependency-metrics-exporter:
+    build:
+      context: ../load-testing/security-metrics-exporter
+      dockerfile: Dockerfile
+    container_name: dependency-metrics-exporter
+    ports:
+      - "9102:9100"
+    environment:
+      - METRICS_PORT=9100
+    command: [ "python3", "security_metrics_exporter.py", "--exporter-type", "dependency" ]
+    restart: on-failure:3
+    networks:
+      - monitoring_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+  compliance-metrics-exporter:
+    build:
+      context: ../load-testing/security-metrics-exporter
+      dockerfile: Dockerfile
+    container_name: compliance-metrics-exporter
+    ports:
+      - "9103:9100"
+    environment:
+      - METRICS_PORT=9100
+    command: [ "python3", "security_metrics_exporter.py", "--exporter-type", "compliance" ]
+    restart: on-failure:3
+    networks:
+      - monitoring_network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.3'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9100/metrics" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+
+  security-dashboard-updater:
+    build:
+      context: ../load-testing/security-metrics-exporter
+      dockerfile: Dockerfile
+    container_name: security-dashboard-updater
+    volumes:
+      - ../load-testing/configs/grafana/dashboards:/dashboards
+    environment:
+      - GRAFANA_URL=http://grafana:3000
+      - GRAFANA_API_KEY=${GRAFANA_API_KEY:-}
+    networks:
+      - monitoring_network
+    restart: on-failure:3
+    command: [ "python3", "-c", "import time; print('Dashboard updater ready'); time.sleep(3600)" ]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.2'
+        reservations:
+          memory: 64M
+          cpus: '0.1'
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    depends_on:
+      - grafana
+
+networks:
+  monitoring_network:
+    external: true
+    name: monitoring_network

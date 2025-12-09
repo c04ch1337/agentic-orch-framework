@@ -1,0 +1,85 @@
+# Codecov configuration file for Phoenix Orchestrator
+
+codecov:
+  require_ci_to_pass: yes
+  notify:
+    wait_for_ci: yes
+
+coverage:
+  precision: 2
+  round: down
+  range: "70...90"
+  status:
+    project:
+      default:
+        target: 80%    # Overall project coverage target
+        threshold: 1%  # Allow coverage to drop by 1% without failing
+    patch:
+      default:
+        target: 80%    # Target for new code
+        threshold: 2%  # Allow new code to be 2% below target
+    changes: no
+
+# Per service coverage targets
+flag_management:
+  default_rules:
+    carryforward: true
+  individual_flags:
+    - name: orchestrator-service-rs
+      paths:
+        - orchestrator-service-rs/
+      statuses:
+        - type: project
+          target: 85%
+          threshold: 1%
+    - name: data-router-rs
+      paths:
+        - data-router-rs/
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 1%
+    - name: llm-service-rs
+      paths:
+        - llm-service-rs/
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 1%
+    - name: tools-service-rs
+      paths:
+        - tools-service-rs/
+      statuses:
+        - type: project
+          target: 80%
+          threshold: 1%
+    - name: frontend
+      paths:
+        - frontend/
+      statuses:
+        - type: project
+          target: 85%
+          threshold: 1%
+
+# Paths to ignore from coverage reporting
+ignore:
+  - "**/tests/"
+  - "**/*.test.{js,ts,jsx,tsx}"
+  - "**/*.config.{js,ts}"
+  - "**/*.d.ts"
+  - "**/mocks/"
+  - "frontend/public/"
+  - "frontend/.next/"
+  - "frontend/node_modules/"
+  - "**/target/"
+  - "**/.cargo/"
+  - "docs/"
+
+# Comment behavior on pull requests
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: true
+  require_base: no
+  require_head: yes
+  after_n_builds: 3

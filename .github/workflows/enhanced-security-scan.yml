@@ -1,0 +1,547 @@
+name: Enhanced Security Scanning
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      scan_scope:
+        description: 'Scanning scope (full, dependencies, containers, code, secrets)'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - dependencies
+          - containers
+          - code
+          - secrets
+
+jobs:
+  advanced-dependency-scan:
+    name: Advanced Dependency Security Scanning
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.scan_scope == 'full' || github.event.inputs.scan_scope == 'dependencies' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+          
+      # Enhanced NPM audit with report generation
+      - name: NPM audit (Frontend)
+        working-directory: frontend
+        run: |
+          npm audit --json > npm-audit-results.json
+          echo "## NPM Audit Results" > npm-audit-report.md
+          echo "\`\`\`" >> npm-audit-report.md
+          npm audit --audit-level=high >> npm-audit-report.md
+          echo "\`\`\`" >> npm-audit-report.md
+          
+          # Count issues by severity
+          critical=$(cat npm-audit-results.json | jq '.vulnerabilities | map(select(.severity == "critical")) | length')
+          high=$(cat npm-audit-results.json | jq '.vulnerabilities | map(select(.severity == "high")) | length')
+          moderate=$(cat npm-audit-results.json | jq '.vulnerabilities | map(select(.severity == "moderate")) | length')
+          low=$(cat npm-audit-results.json | jq '.vulnerabilities | map(select(.severity == "low")) | length')
+          
+          echo "Found vulnerabilities: $critical critical, $high high, $moderate moderate, $low low" >> npm-audit-report.md
+        continue-on-error: true
+          
+      # Enhanced cargo audit with license checking
+      - name: Cargo audit (Rust services)
+        run: |
+          cargo install cargo-audit
+          cargo install cargo-license
+          
+          echo "# Rust Security Audit Report" > rust-audit-report.md
+          echo "## Security Vulnerabilities" >> rust-audit-report.md
+          
+          # Create directory to store individual audit results
+          mkdir -p audit-results
+          
+          # Check each cargo workspace
+          for service in api-gateway-rs auth-service-rs executor-rs orchestrator-service-rs data-router-rs llm-service-rs tools-service-rs safety-service-rs secrets-service-rs logging-service-rs mind-kb-rs; do
+            if [ -d "$service" ]; then
+              echo "Auditing $service..."
+              echo "### $service" >> rust-audit-report.md
+              echo "\`\`\`" >> rust-audit-report.md
+              cd $service
+              cargo audit --json > ../audit-results/$service-audit.json
+              cargo audit >> ../rust-audit-report.md
+              cd ..
+              echo "\`\`\`" >> rust-audit-report.md
+              
+              # Check for licenses
+              echo "#### Licenses" >> rust-audit-report.md
+              echo "\`\`\`" >> rust-audit-report.md
+              cd $service
+              cargo license >> ../rust-audit-report.md
+              cd ..
+              echo "\`\`\`" >> rust-audit-report.md
+            fi
+          done
+        continue-on-error: true
+
+      - name: License compliance checking
+        run: |
+          echo "# License Compliance Report" > license-report.md
+          
+          # Check frontend licenses
+          echo "## Frontend Licenses" >> license-report.md
+          cd frontend
+          echo "\`\`\`" >> ../license-report.md
+          npm ls --json | jq -r '.dependencies | to_entries[] | "\(.key): \(.value.version) - \(.value.license // "Unknown")"' >> ../license-report.md
+          echo "\`\`\`" >> ../license-report.md
+          cd ..
+          
+          # Identify potentially problematic licenses
+          echo "## License Compliance Issues" >> license-report.md
+          echo "Checking for potentially problematic licenses (GPL, AGPL)..." >> license-report.md
+          
+          cd frontend
+          npm ls --json | jq -r '.dependencies | to_entries[] | select(.value.license | contains("GPL") or contains("AGPL")) | "\(.key): \(.value.version) - \(.value.license)"' > ../gpl-licenses.txt
+          cd ..
+          
+          if [ -s gpl-licenses.txt ]; then
+            echo "⚠️ Found potentially problematic licenses:" >> license-report.md
+            echo "\`\`\`" >> license-report.md
+            cat gpl-licenses.txt >> license-report.md
+            echo "\`\`\`" >> license-report.md
+          else
+            echo "✅ No GPL/AGPL licenses found in dependencies." >> license-report.md
+          fi
+        continue-on-error: true
+          
+      - name: Dependabot alert check
+        run: |
+          # Check if there are open dependabot alerts
+          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/dependabot/alerts?state=open" > alerts.json
+          
+          echo "# Dependabot Security Alerts" > dependabot-report.md
+          
+          # Count open alerts
+          count=$(jq length alerts.json)
+          echo "There are $count open Dependabot alerts" >> dependabot-report.md
+          
+          # Report critical alerts
+          critical=$(jq '[.[] | select(.severity=="critical")] | length' alerts.json)
+          high=$(jq '[.[] | select(.severity=="high")] | length' alerts.json)
+          medium=$(jq '[.[] | select(.severity=="medium")] | length' alerts.json)
+          low=$(jq '[.[] | select(.severity=="low")] | length' alerts.json)
+          
+          echo "- Critical: $critical" >> dependabot-report.md
+          echo "- High: $high" >> dependabot-report.md
+          echo "- Medium: $medium" >> dependabot-report.md
+          echo "- Low: $low" >> dependabot-report.md
+          
+          if [ $critical -gt 0 ] || [ $high -gt 0 ]; then
+            echo "## Critical/High Alerts" >> dependabot-report.md
+            jq '.[] | select(.severity=="critical" or .severity=="high") | {package: .dependency.package.name, severity, summary, url: .html_url}' alerts.json >> dependabot-report.md
+          fi
+        
+      - name: Upload dependency scan reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: dependency-scan-reports
+          path: |
+            npm-audit-report.md
+            rust-audit-report.md
+            license-report.md
+            dependabot-report.md
+          
+  enhanced-container-scanning:
+    name: Enhanced Container Image Scanning
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.scan_scope == 'full' || github.event.inputs.scan_scope == 'containers' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - api-gateway-rs
+          - auth-service-rs
+          - executor-rs
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Build test image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: false
+          load: true
+          tags: security-scan/${{ matrix.service }}:test
+        continue-on-error: true
+        
+      - name: Run Trivy vulnerability scanner (Enhanced)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: security-scan/${{ matrix.service }}:test
+          format: 'template'
+          template: '@/contrib/html.tpl'
+          output: 'trivy-results-${{ matrix.service }}.html'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          timeout: '10m'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+        continue-on-error: true
+          
+      - name: Run Trivy for SARIF output
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: security-scan/${{ matrix.service }}:test
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+        continue-on-error: true
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+      
+      - name: Run Dockle image linter with detailed output
+        uses: erzz/dockle-action@v1
+        with:
+          image: security-scan/${{ matrix.service }}:test
+          exit-code: 0
+          failure-threshold: WARN
+          accept-filenames: "/.dockerignore,/Dockerfile"
+        continue-on-error: true
+        
+      - name: Convert Dockle output to JSON
+        run: |
+          dockle --exit-code 0 --format json --output dockle-results-${{ matrix.service }}.json security-scan/${{ matrix.service }}:test
+        continue-on-error: true
+        
+      - name: Generate Dockle HTML report
+        run: |
+          echo "<html><head><title>Dockle Report for ${{ matrix.service }}</title><style>body{font-family:sans-serif}table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:8px;border:1px solid #ddd}tr:nth-child(even){background-color:#f2f2f2}th{background-color:#4CAF50;color:white}.FATAL{background-color:#f44336;color:white}.WARN{background-color:#ff9800}</style></head><body>" > dockle-report-${{ matrix.service }}.html
+          echo "<h1>Dockle Report for ${{ matrix.service }}</h1>" >> dockle-report-${{ matrix.service }}.html
+          echo "<table><tr><th>Code</th><th>Level</th><th>Description</th><th>Recommendation</th></tr>" >> dockle-report-${{ matrix.service }}.html
+          jq -r '.details[] | "<tr class=\"\(.level)\"><td>\(.code)</td><td>\(.level)</td><td>\(.desc)</td><td>\(.msg)</td></tr>"' dockle-results-${{ matrix.service }}.json >> dockle-report-${{ matrix.service }}.html
+          echo "</table></body></html>" >> dockle-report-${{ matrix.service }}.html
+        continue-on-error: true
+          
+      - name: Upload container scan reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: container-scan-reports-${{ matrix.service }}
+          path: |
+            trivy-results-${{ matrix.service }}.html
+            dockle-report-${{ matrix.service }}.html
+          
+  advanced-code-scanning:
+    name: Advanced Code Security Scanning
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.scan_scope == 'full' || github.event.inputs.scan_scope == 'code' }}
+    permissions:
+      security-events: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript, rust
+          queries: security-extended,security-and-quality
+          
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        with:
+          category: "/language:javascript,typescript,rust"
+          
+      - name: Run Semgrep SAST scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          publishToken: ${{ secrets.SEMGREP_APP_TOKEN }}
+          config: >-
+            p/owasp-top-ten
+            p/rust-security-and-correctness
+            p/typescript-security
+        continue-on-error: true
+        
+      # Run additional SAST tools for frontend code
+      - name: Run ESLint security plugins
+        working-directory: frontend
+        run: |
+          npm install --save-dev eslint eslint-plugin-security
+          echo '{
+            "plugins": ["security"],
+            "extends": ["plugin:security/recommended"]
+          }' > .eslintrc.security.json
+          npx eslint --config .eslintrc.security.json --format json --output-file ../eslint-security-report.json .
+        continue-on-error: true
+        
+      - name: Generate ESLint security report
+        if: always()
+        run: |
+          echo "# ESLint Security Report" > eslint-security-report.md
+          echo "## Findings" >> eslint-security-report.md
+          if [ -f eslint-security-report.json ]; then
+            echo "\`\`\`json" >> eslint-security-report.md
+            cat eslint-security-report.json >> eslint-security-report.md
+            echo "\`\`\`" >> eslint-security-report.md
+          else
+            echo "No ESLint security report found." >> eslint-security-report.md
+          fi
+        
+      - name: Upload code scan reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: code-scan-reports
+          path: |
+            eslint-security-report.md
+            
+  enhanced-secret-scanning:
+    name: Enhanced Secret Scanning
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.scan_scope == 'full' || github.event.inputs.scan_scope == 'secrets' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Scan for secrets with TruffleHog
+        id: trufflehog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --json
+          
+      - name: Run GitLeaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        continue-on-error: true
+          
+      - name: Check .env files for security issues
+        run: |
+          echo "# Environment Files Security Check" > env-security-report.md
+          echo "## Checking for unauthorized .env files" >> env-security-report.md
+          
+          # Look for .env files without .example suffix
+          find . -name ".env*" -not -name "*.example" -not -name "*.dev" -not -name "*.staging" -not -name "*.production" | while read file; do
+            echo "⚠️ Found potential plaintext environment file: $file" >> env-security-report.md
+          done
+          
+          # Check for secrets in example files
+          echo "## Checking for secrets in example files" >> env-security-report.md
+          find . -name ".env*.example" | xargs grep -l "BEGIN PRIVATE KEY\|BEGIN RSA PRIVATE KEY\|AIza[0-9A-Za-z-_]\{35\}" &> secret-matches.txt
+          
+          if [ -s secret-matches.txt ]; then
+            echo "⚠️ Found potential secrets in example files:" >> env-security-report.md
+            cat secret-matches.txt | while read file; do
+              echo "- $file" >> env-security-report.md
+            done
+          else 
+            echo "✅ No API keys found in example files" >> env-security-report.md
+          fi
+          
+          # Check for AWS access key patterns
+          echo "## Checking for AWS credentials patterns" >> env-security-report.md
+          find . -name "*.yml" -o -name "*.yaml" -o -name "*.json" -o -name "*.js" -o -name "*.ts" -o -name "*.md" | xargs grep -l "AKIA[0-9A-Z]\{16\}\|aws_access_key_id\|aws_secret_access_key" &> aws-matches.txt
+          
+          if [ -s aws-matches.txt ]; then
+            echo "⚠️ Found potential AWS credential patterns:" >> env-security-report.md
+            cat aws-matches.txt | while read file; do
+              echo "- $file" >> env-security-report.md
+            done
+          else
+            echo "✅ No AWS credential patterns found" >> env-security-report.md
+          fi
+          
+      - name: Upload secret scan reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: secret-scan-reports
+          path: |
+            env-security-report.md
+            
+  comprehensive-report:
+    name: Generate Comprehensive Security Report
+    needs: [advanced-dependency-scan, enhanced-container-scanning, advanced-code-scanning, enhanced-secret-scanning]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: all-artifacts
+          
+      - name: Generate comprehensive security report
+        run: |
+          echo "# Comprehensive Security Scan Report" > comprehensive-report.md
+          echo "## Generated on $(date)" >> comprehensive-report.md
+          echo "## Summary" >> comprehensive-report.md
+          echo "- Dependency scan: ${{ needs.advanced-dependency-scan.result }}" >> comprehensive-report.md
+          echo "- Container scanning: ${{ needs.enhanced-container-scanning.result }}" >> comprehensive-report.md
+          echo "- Code scanning: ${{ needs.advanced-code-scanning.result }}" >> comprehensive-report.md
+          echo "- Secret scanning: ${{ needs.enhanced-secret-scanning.result }}" >> comprehensive-report.md
+          
+          # Dependency Security
+          echo "## Dependency Security" >> comprehensive-report.md
+          if [ -d all-artifacts/dependency-scan-reports ]; then
+            if [ -f all-artifacts/dependency-scan-reports/npm-audit-report.md ]; then
+              echo "### Frontend Dependencies" >> comprehensive-report.md
+              cat all-artifacts/dependency-scan-reports/npm-audit-report.md >> comprehensive-report.md
+            fi
+            
+            if [ -f all-artifacts/dependency-scan-reports/rust-audit-report.md ]; then
+              echo "### Rust Dependencies" >> comprehensive-report.md
+              cat all-artifacts/dependency-scan-reports/rust-audit-report.md >> comprehensive-report.md
+            fi
+            
+            if [ -f all-artifacts/dependency-scan-reports/license-report.md ]; then
+              echo "### License Compliance" >> comprehensive-report.md
+              cat all-artifacts/dependency-scan-reports/license-report.md >> comprehensive-report.md
+            fi
+            
+            if [ -f all-artifacts/dependency-scan-reports/dependabot-report.md ]; then
+              echo "### Dependabot Alerts" >> comprehensive-report.md
+              cat all-artifacts/dependency-scan-reports/dependabot-report.md >> comprehensive-report.md
+            fi
+          fi
+          
+          # Secret Scanning
+          echo "## Secret Detection" >> comprehensive-report.md
+          if [ -d all-artifacts/secret-scan-reports ]; then
+            if [ -f all-artifacts/secret-scan-reports/env-security-report.md ]; then
+              cat all-artifacts/secret-scan-reports/env-security-report.md >> comprehensive-report.md
+            fi
+          fi
+          
+          # Code Security
+          echo "## Code Security" >> comprehensive-report.md
+          if [ -d all-artifacts/code-scan-reports ]; then
+            if [ -f all-artifacts/code-scan-reports/eslint-security-report.md ]; then
+              cat all-artifacts/code-scan-reports/eslint-security-report.md >> comprehensive-report.md
+            fi
+          fi
+          
+          # Recommendations
+          echo "## Security Recommendations" >> comprehensive-report.md
+          echo "Based on the findings, here are the recommended actions:" >> comprehensive-report.md
+          echo "1. Address all Critical and High vulnerabilities in dependencies" >> comprehensive-report.md
+          echo "2. Review and remediate container security issues" >> comprehensive-report.md
+          echo "3. Fix any detected secrets or credentials in the codebase" >> comprehensive-report.md
+          echo "4. Review code quality issues that might lead to security problems" >> comprehensive-report.md
+          echo "5. Ensure license compliance for all dependencies" >> comprehensive-report.md
+          
+      - name: Upload comprehensive report
+        uses: actions/upload-artifact@v3
+        with:
+          name: comprehensive-security-report
+          path: comprehensive-report.md
+          
+      - name: Create GitHub Issue for critical findings
+        if: ${{ failure() }}
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Security Scan Found Critical Issues - $(date +%Y-%m-%d)',
+              body: 'The security scan has found critical issues that need immediate attention. Please download the comprehensive security report from the workflow artifacts and address the findings.',
+              labels: ['security', 'critical']
+            })
+          
+      - name: Send notification on failure
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ *Enhanced Security Scan Failures Detected* ⚠️\n\nThe security scan has detected issues that need immediate attention.",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "⚠️ Enhanced Security Scan Failures Detected"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The security scan has detected issues that need immediate attention."
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Workflow:* ${{ github.workflow }}\n*Repo:* ${{ github.repository }}\n*Run ID:* ${{ github.run_id }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow Run"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

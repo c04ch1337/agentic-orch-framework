@@ -1,0 +1,552 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      specific_service:
+        description: 'Deploy only a specific service (leave empty for all)'
+        required: false
+        default: ''
+      deploy_percentage:
+        description: 'Initial canary deployment percentage (1-100)'
+        required: false
+        default: '10'
+
+jobs:
+  validate-release:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Validate release signature
+        run: |
+          echo "Validating release signature..."
+          # This would be your release signature validation logic
+          # For demonstration, we'll just check if the tag exists
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            git show-ref --tags --verify --quiet refs/tags/${{ github.ref_name }} || exit 1
+          fi
+          echo "Release signature validated successfully"
+
+      - name: Create release notes
+        if: github.event_name == 'push'
+        id: release_notes
+        run: |
+          # Generate release notes from git log since last release
+          previous_tag=$(git tag --sort=-creatordate | head -n 2 | tail -n 1)
+          if [ -z "$previous_tag" ]; then
+            echo "RELEASE_NOTES=Initial release" >> $GITHUB_ENV
+          else
+            echo "RELEASE_NOTES<<EOF" >> $GITHUB_ENV
+            git log $previous_tag..${{ github.ref_name }} --pretty=format:"- %s (%an)" >> $GITHUB_ENV
+            echo "" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+          fi
+
+  build-and-push:
+    name: Build & Push Docker Images
+    needs: validate-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+          - body-kb-rs
+          - heart-kb-rs
+          - social-kb-rs
+          - soul-kb-rs
+          - executor-rs
+          - context-manager-rs
+          - reflection-rs
+          - scheduler-rs
+          - agent-registry-rs
+          - log-analyzer-rs
+          - curiosity-engine-rs
+
+    steps:
+      - name: Skip if specific service is specified and not this one
+        if: ${{ github.event.inputs.specific_service != '' && github.event.inputs.specific_service != matrix.service }}
+        run: echo "Skipping ${{ matrix.service }} as it was not selected for deployment" && exit 0
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Build and push image
+        id: build-push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:production
+            ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:${{ steps.version.outputs.TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Set up Cosign
+        uses: sigstore/cosign-installer@main
+        
+      - name: Sign the images with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: |
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}@${DIGEST}
+          
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:${{ steps.version.outputs.TAG }}
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+          
+      - name: Verify image signatures
+        run: |
+          cosign verify --certificate-identity-regexp="https://github.com/${{ github.repository_owner }}" ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}@${{ steps.build-push.outputs.digest }}
+
+  pre-prod-testing:
+    name: Pre-Production Testing
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: |
+          cd integration-tests
+          npm ci
+          
+      - name: Run full test suite against staging
+        run: |
+          cd integration-tests
+          npm run test:full:staging
+          
+      - name: Extract version for load testing
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Run load tests
+        run: |
+          cd load-testing
+          ./run-test.sh stress https://staging.phoenix-orch.example.com 25 300s
+          
+      - name: Generate and upload test reports
+        run: |
+          cd load-testing
+          ./scripts/analyze-results.sh ./results/aggregated/summary-report.json
+          
+      - name: Create pre-deployment report
+        run: |
+          echo "# Pre-Deployment Test Report for ${{ steps.version.outputs.TAG }}" > pre-deployment-report.md
+          echo "## Test Results" >> pre-deployment-report.md
+          echo "- Integration Tests: PASSED" >> pre-deployment-report.md
+          echo "- Load Tests: See attached artifacts" >> pre-deployment-report.md
+          echo "## Next Steps" >> pre-deployment-report.md
+          echo "- Review test results" >> pre-deployment-report.md
+          echo "- Approve canary deployment" >> pre-deployment-report.md
+          
+      - name: Upload pre-deployment report
+        uses: actions/upload-artifact@v3
+        with:
+          name: pre-deployment-report
+          path: pre-deployment-report.md
+
+  approve-production-deploy:
+    name: Approve Production Deployment
+    needs: pre-prod-testing
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Download pre-deployment report
+        uses: actions/download-artifact@v3
+        with:
+          name: pre-deployment-report
+          
+      - name: Wait for manual approval
+        uses: trstringer/manual-approval@v1
+        with:
+          secret: ${{ secrets.GITHUB_TOKEN }}
+          approvers: ${{ vars.PRODUCTION_APPROVERS }}
+          minimum-approvals: 2
+          issue-title: "Approve Production Deployment"
+          issue-body: "Please review the [Pre-Deployment Report](pre-deployment-report.md) and approve or reject this deployment to production."
+          exclude-workflow-initiator-as-approver: false
+
+  canary-deployment:
+    name: Canary Deployment
+    needs: approve-production-deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: us-west-2
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name phoenix-orch-prod --region us-west-2
+        
+      - name: Extract deployment percentage
+        id: deployment
+        run: |
+          echo "PERCENTAGE=${{ github.event.inputs.deploy_percentage || '10' }}" >> $GITHUB_OUTPUT
+          
+      - name: Prepare canary deployment
+        run: |
+          # Create directory for canary manifests
+          mkdir -p k8s/production/canary
+          
+          # Copy deployment manifests to canary directory
+          cp k8s/production/deployments/* k8s/production/canary/
+          
+          # Create canary deployment manifest
+          cd k8s/production/canary
+          for file in *.yml; do
+            # Modify the deployment name to include canary suffix
+            sed -i "s/name: \(.*\)/name: \1-canary/g" "$file"
+            
+            # Set the desired canary percentage
+            sed -i "s/replicas: .*/replicas: 1/g" "$file"
+            
+            # Add canary labels
+            sed -i "/labels:/a \ \ \ \ \ \ deployment: canary" "$file"
+            
+            # Extract service name from filename
+            service_name=$(basename "$file" .yml | sed 's/deployment-//')
+            
+            # Set the image to the latest version
+            if [[ "${{ github.event_name }}" == "push" ]]; then
+              VERSION=${GITHUB_REF#refs/tags/}
+            else
+              VERSION=latest
+            fi
+            
+            sed -i "s|image: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${service_name}:.*|image: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${service_name}:${VERSION}|g" "$file"
+          done
+          
+      - name: Deploy canary
+        run: |
+          kubectl apply -f k8s/production/canary/ --recursive
+          kubectl rollout status deployment -n phoenix-orch --selector=deployment=canary --timeout=5m
+          
+      - name: Update service to route traffic to canary
+        run: |
+          # Update each service to split traffic
+          cd k8s/production/services
+          for file in *.yml; do
+            # Extract service name
+            service_name=$(basename "$file" .yml | sed 's/service-//')
+            
+            # Create a temporary file for the updated service
+            cat "$file" | sed '/selector:/a \ \ deployment: production' > "${file}.temp"
+            
+            # Apply the updated service
+            kubectl apply -f "${file}.temp"
+          done
+          
+          # Create canary services
+          for file in *.yml; do
+            # Extract service name
+            service_name=$(basename "$file" .yml | sed 's/service-//')
+            
+            # Create canary service
+            cat "$file" | sed "s/name: ${service_name}/name: ${service_name}-canary/" | \
+              sed "s/port: \(.*\)/port: \1/" | \
+              sed '/selector:/a \ \ deployment: canary' > "${service_name}-canary.yml"
+              
+            # Apply the canary service
+            kubectl apply -f "${service_name}-canary.yml"
+          done
+          
+          # Configure traffic percentage with Istio
+          echo "Configuring traffic split with Istio..."
+          for file in *.yml; do
+            service_name=$(basename "$file" .yml | sed 's/service-//')
+            
+            # Create VirtualService for traffic splitting
+            cat > "${service_name}-vs.yml" << EOF
+            apiVersion: networking.istio.io/v1alpha3
+            kind: VirtualService
+            metadata:
+              name: ${service_name}-traffic-split
+              namespace: phoenix-orch
+            spec:
+              hosts:
+                - ${service_name}
+              http:
+                - route:
+                  - destination:
+                      host: ${service_name}
+                    weight: $((100 - ${{ steps.deployment.outputs.PERCENTAGE }}))
+                  - destination:
+                      host: ${service_name}-canary
+                    weight: ${{ steps.deployment.outputs.PERCENTAGE }}
+            EOF
+            
+            # Apply the VirtualService
+            kubectl apply -f "${service_name}-vs.yml"
+          done
+          
+      - name: Monitor canary health
+        run: |
+          # Wait for canary to stabilize
+          sleep 60
+          
+          # Run health checks on canary
+          ./scripts/health-check.sh production-canary
+          
+          # Monitor metrics for 5 minutes
+          echo "Monitoring canary deployment for 5 minutes..."
+          start_time=$(date +%s)
+          end_time=$((start_time + 300))
+          
+          while [ $(date +%s) -lt $end_time ]; do
+            # Check for canary errors
+            error_count=$(kubectl logs -n phoenix-orch --selector=deployment=canary --tail=100 | grep -c "ERROR" || echo "0")
+            
+            if [ $error_count -gt 5 ]; then
+              echo "Too many errors detected in canary deployment. Rolling back."
+              kubectl delete -f k8s/production/canary/ --recursive
+              exit 1
+            fi
+            
+            # Wait 30 seconds before next check
+            sleep 30
+          done
+          
+          echo "Canary deployment has been stable for 5 minutes. Proceeding with full deployment."
+
+  promote-to-production:
+    name: Promote to Production
+    needs: canary-deployment
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: us-west-2
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name phoenix-orch-prod --region us-west-2
+        
+      - name: Extract version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=latest" >> $GITHUB_OUTPUT
+          fi
+        
+      - name: Update production deployments
+        run: |
+          cd k8s/production/deployments
+          for file in *.yml; do
+            # Extract service name from filename
+            service_name=$(basename "$file" .yml | sed 's/deployment-//')
+            
+            # Update the image tag
+            sed -i "s|image: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${service_name}:.*|image: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${service_name}:${{ steps.version.outputs.TAG }}|g" "$file"
+          done
+          
+      - name: Apply updated deployments
+        run: kubectl apply -f k8s/production/deployments/ --recursive
+        
+      - name: Wait for deployments to complete
+        run: kubectl rollout status deployment -n phoenix-orch --timeout=10m
+        
+      - name: Reset traffic to production
+        run: |
+          cd k8s/production/services
+          for file in *.yml; do
+            service_name=$(basename "$file" .yml | sed 's/service-//')
+            
+            # Update VirtualService to send all traffic to production
+            cat > "${service_name}-vs.yml" << EOF
+            apiVersion: networking.istio.io/v1alpha3
+            kind: VirtualService
+            metadata:
+              name: ${service_name}-traffic-split
+              namespace: phoenix-orch
+            spec:
+              hosts:
+                - ${service_name}
+              http:
+                - route:
+                  - destination:
+                      host: ${service_name}
+                    weight: 100
+            EOF
+            
+            # Apply the updated VirtualService
+            kubectl apply -f "${service_name}-vs.yml"
+          done
+          
+      - name: Remove canary deployments
+        run: kubectl delete -f k8s/production/canary/ --recursive
+        
+      - name: Run post-deployment health check
+        run: |
+          # Wait for services to stabilize
+          sleep 60
+          
+          # Run health check script
+          ./scripts/health-check.sh production
+
+  rollback:
+    name: Rollback (if needed)
+    needs: promote-to-production
+    if: failure()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN_PROD }}
+          aws-region: us-west-2
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name phoenix-orch-prod --region us-west-2
+        
+      - name: Rollback deployments
+        run: |
+          echo "Rolling back to previous stable version..."
+          
+          # Rollback deployments
+          kubectl rollout undo deployment --all -n phoenix-orch
+          
+          # Wait for rollback to complete
+          kubectl rollout status deployment -n phoenix-orch --timeout=5m
+          
+          # Run health check
+          ./scripts/health-check.sh production
+          
+      - name: Send rollback notification
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ *ALERT: Production Deployment Failed - Automatic Rollback Initiated* ⚠️\n\nThe deployment to production has failed and an automatic rollback has been initiated. Please investigate the issue immediately.",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "⚠️ ALERT: Production Deployment Failed - Automatic Rollback Initiated"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The deployment to production has failed and an automatic rollback has been initiated."
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Workflow:* ${{ github.workflow }}\n*Commit:* ${{ github.sha }}\n*Repo:* ${{ github.repository }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow Run"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

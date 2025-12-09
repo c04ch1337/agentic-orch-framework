@@ -1,0 +1,153 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  rust-build-and-test:
+    name: Build & Test Rust Services
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+          - body-kb-rs
+          - heart-kb-rs
+          - social-kb-rs
+          - soul-kb-rs
+          - executor-rs
+          - context-manager-rs
+          - reflection-rs
+          - scheduler-rs
+          - agent-registry-rs
+          - log-analyzer-rs
+          - curiosity-engine-rs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Rust (stable)
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "./${{ matrix.service }}"
+
+      - name: Format check
+        working-directory: ${{ matrix.service }}
+        run: cargo fmt -- --check
+
+      - name: Lint check
+        working-directory: ${{ matrix.service }}
+        run: cargo clippy -- -D warnings
+
+      - name: Build
+        working-directory: ${{ matrix.service }}
+        run: cargo build --verbose
+
+      - name: Run tests
+        working-directory: ${{ matrix.service }}
+        run: cargo test --verbose
+        
+      - name: Generate test coverage
+        working-directory: ${{ matrix.service }}
+        run: |
+          cargo install cargo-tarpaulin
+          cargo tarpaulin --out Xml --output-dir coverage
+          
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./${{ matrix.service }}/coverage/cobertura.xml
+          flags: unittests,${{ matrix.service }}
+          name: ${{ matrix.service }}
+          fail_ci_if_error: false
+
+  frontend-checks:
+    name: Build & Test Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'frontend/package-lock.json'
+          
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+        
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+        
+      - name: Type check
+        working-directory: frontend
+        run: npm run type-check
+        
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+        
+      - name: Test
+        working-directory: frontend
+        run: npm test
+        
+      - name: Report test coverage
+        working-directory: frontend
+        run: npm run test:coverage
+        
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./frontend/coverage/lcov.info
+          flags: unittests,frontend
+          name: frontend
+          fail_ci_if_error: false
+
+  quality-checks:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Check commit message style
+        uses: wagoid/commitlint-github-action@v5
+        
+      - name: Check for secrets in code
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Dependency vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'

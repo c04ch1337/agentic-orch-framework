@@ -1,0 +1,214 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ staging ]
+  workflow_dispatch:
+    inputs:
+      specific_service:
+        description: 'Deploy only a specific service (leave empty for all)'
+        required: false
+        default: ''
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+          - body-kb-rs
+          - heart-kb-rs
+          - social-kb-rs
+          - soul-kb-rs
+          - executor-rs
+          - context-manager-rs
+          - reflection-rs
+          - scheduler-rs
+          - agent-registry-rs
+          - log-analyzer-rs
+          - curiosity-engine-rs
+
+    steps:
+      - name: Skip if specific service is specified and not this one
+        if: ${{ github.event.inputs.specific_service != '' && github.event.inputs.specific_service != matrix.service }}
+        run: echo "Skipping ${{ matrix.service }} as it was not selected for deployment" && exit 0
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+        
+      - name: Build and push image
+        id: build-push
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:staging
+            ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          
+      - name: Set up Cosign
+        uses: sigstore/cosign-installer@main
+        
+      - name: Sign the images with GitHub OIDC
+        env:
+          DIGEST: ${{ steps.build-push.outputs.digest }}
+        run: |
+          cosign sign --yes ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}@${DIGEST}
+          
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${{ matrix.service }}:staging
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH'
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+
+  integration-tests:
+    name: Run Pre-Deployment Tests
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Install dependencies
+        run: |
+          cd integration-tests
+          npm ci
+          
+      - name: Setup K6 test runner
+        run: |
+          curl -L https://github.com/grafana/k6/releases/download/v0.44.0/k6-v0.44.0-linux-amd64.tar.gz | tar xzf - -C /tmp
+          sudo mv /tmp/k6-v0.44.0-linux-amd64/k6 /usr/local/bin/
+          
+      - name: Run tests against staging environment
+        run: |
+          cd integration-tests
+          npm run test:staging
+
+  deploy:
+    name: Deploy to Staging Environment
+    needs: integration-tests
+    runs-on: ubuntu-latest
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-west-2
+          
+      - name: Update kubeconfig
+        run: aws eks update-kubeconfig --name phoenix-orch-staging --region us-west-2
+        
+      - name: Apply ConfigMaps
+        run: |
+          kubectl apply -f k8s/00-namespace.yml
+          kubectl apply -f k8s/staging/configmaps/ --recursive
+          
+      - name: Update image tags in deployment manifest
+        run: |
+          cd k8s/staging
+          for file in deployments/*.yml; do
+            # Extract service name from filename
+            service_name=$(basename "$file" .yml | sed 's/deployment-//')
+            # Replace the image tag in the deployment file
+            sed -i "s|image: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${service_name}:.*|image: ghcr.io/${{ github.repository_owner }}/phoenix-orch/${service_name}:${{ github.sha }}|g" "$file"
+          done
+          
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl apply -f k8s/staging/deployments/ --recursive
+          kubectl apply -f k8s/staging/services/ --recursive
+          
+      - name: Wait for deployments
+        run: |
+          kubectl rollout status deployment -n phoenix-orch --timeout=5m
+          
+      - name: Run post-deployment health check
+        run: |
+          # Wait for services to be available
+          sleep 60
+          # Run health check script
+          ./scripts/health-check.sh staging
+          
+  load-testing:
+    name: Run Load Tests
+    needs: deploy
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Docker Compose
+        run: |
+          docker-compose -f load-testing/docker-compose.yml up -d
+        
+      - name: Run baseline load test
+        run: |
+          cd load-testing
+          ./run-test.sh baseline https://staging.phoenix-orch.example.com 10 60s
+        
+      - name: Run user journey tests
+        run: |
+          cd load-testing
+          ./run-test.sh user-journey https://staging.phoenix-orch.example.com 5 120s
+          
+      - name: Generate and upload test report
+        run: |
+          cd load-testing
+          ./scripts/analyze-results.sh ./results/aggregated/summary-report.json
+          
+      - name: Upload performance test results
+        uses: actions/upload-artifact@v3
+        with:
+          name: load-test-results
+          path: load-testing/results/

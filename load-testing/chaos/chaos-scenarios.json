@@ -1,0 +1,169 @@
+{
+    "scenarios": [
+        {
+            "name": "service-failures",
+            "description": "Test system resilience when services fail",
+            "experiments": [
+                {
+                    "name": "orchestrator-failure",
+                    "scenario": "service-kill",
+                    "target": "orchestrator-service",
+                    "duration": "30s",
+                    "description": "Kill the orchestrator service to test system recovery"
+                },
+                {
+                    "name": "data-router-failure",
+                    "scenario": "service-kill",
+                    "target": "data-router-service",
+                    "duration": "45s",
+                    "description": "Kill the data router service to test failover"
+                },
+                {
+                    "name": "llm-service-failure",
+                    "scenario": "service-kill",
+                    "target": "llm-service",
+                    "duration": "30s",
+                    "description": "Kill the LLM service to test degraded operation"
+                },
+                {
+                    "name": "multiple-kb-failures",
+                    "scenario": "service-kill",
+                    "target": [
+                        "mind-kb",
+                        "body-kb"
+                    ],
+                    "duration": "60s",
+                    "description": "Kill multiple knowledge bases simultaneously",
+                    "multi-target": true
+                }
+            ]
+        },
+        {
+            "name": "network-issues",
+            "description": "Test system resilience under various network conditions",
+            "experiments": [
+                {
+                    "name": "orchestrator-latency",
+                    "scenario": "network-latency",
+                    "target": "orchestrator-service",
+                    "duration": "120s",
+                    "description": "Add latency to orchestrator service communications"
+                },
+                {
+                    "name": "data-router-packet-loss",
+                    "scenario": "network-packet-loss",
+                    "target": "data-router-service",
+                    "duration": "120s",
+                    "description": "Introduce packet loss to data router service"
+                },
+                {
+                    "name": "kb-network-partition",
+                    "scenario": "network-partition",
+                    "target": [
+                        "mind-kb",
+                        "body-kb",
+                        "heart-kb",
+                        "social-kb",
+                        "soul-kb"
+                    ],
+                    "duration": "60s",
+                    "description": "Create network partition between knowledge bases and other services",
+                    "multi-target": true
+                }
+            ]
+        },
+        {
+            "name": "resource-exhaustion",
+            "description": "Test system resilience under resource constraints",
+            "experiments": [
+                {
+                    "name": "orchestrator-cpu-stress",
+                    "scenario": "cpu-stress",
+                    "target": "orchestrator-service",
+                    "duration": "180s",
+                    "description": "Stress the orchestrator CPU to test performance degradation"
+                },
+                {
+                    "name": "llm-service-memory-stress",
+                    "scenario": "memory-stress",
+                    "target": "llm-service",
+                    "duration": "180s",
+                    "description": "Stress the LLM service memory to test OOM handling"
+                },
+                {
+                    "name": "kb-disk-stress",
+                    "scenario": "disk-stress",
+                    "target": [
+                        "mind-kb",
+                        "body-kb",
+                        "heart-kb",
+                        "social-kb",
+                        "soul-kb"
+                    ],
+                    "duration": "120s",
+                    "description": "Stress the knowledge base disk I/O",
+                    "multi-target": true
+                }
+            ]
+        },
+        {
+            "name": "timing-issues",
+            "description": "Test system resilience under timing and synchronization issues",
+            "experiments": [
+                {
+                    "name": "orchestrator-clock-skew",
+                    "scenario": "clock-skew",
+                    "target": "orchestrator-service",
+                    "duration": "300s",
+                    "description": "Introduce clock skew to orchestrator to test timestamp handling"
+                },
+                {
+                    "name": "multi-service-clock-skew",
+                    "scenario": "clock-skew",
+                    "target": [
+                        "data-router-service",
+                        "llm-service",
+                        "mind-kb"
+                    ],
+                    "duration": "300s",
+                    "description": "Introduce different clock skews to multiple services",
+                    "multi-target": true
+                }
+            ]
+        },
+        {
+            "name": "combined-chaos",
+            "description": "Test system resilience under multiple simultaneous issues",
+            "experiments": [
+                {
+                    "name": "network-and-cpu",
+                    "scenarios": [
+                        "network-latency",
+                        "cpu-stress"
+                    ],
+                    "targets": [
+                        "orchestrator-service",
+                        "data-router-service"
+                    ],
+                    "duration": "120s",
+                    "description": "Combine network latency with CPU stress",
+                    "multi-scenario": true
+                },
+                {
+                    "name": "service-kill-and-network",
+                    "scenarios": [
+                        "service-kill",
+                        "network-packet-loss"
+                    ],
+                    "targets": [
+                        "llm-service",
+                        "data-router-service"
+                    ],
+                    "duration": "90s",
+                    "description": "Kill a service while introducing packet loss to another",
+                    "multi-scenario": true
+                }
+            ]
+        }
+    ]
+}

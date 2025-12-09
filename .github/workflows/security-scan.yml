@@ -1,0 +1,301 @@
+name: Security Scanning and Dependency Validation
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Run daily at 2 AM UTC
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  dependency-scan:
+    name: Dependency Security Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+          
+      - name: NPM audit (Frontend)
+        working-directory: frontend
+        run: npm audit --audit-level=high
+          
+      - name: Cargo audit (Rust services)
+        run: |
+          cargo install cargo-audit
+          cd orchestrator-service-rs && cargo audit
+          cd ../data-router-rs && cargo audit
+          cd ../llm-service-rs && cargo audit
+          cd ../tools-service-rs && cargo audit
+          cd ../safety-service-rs && cargo audit
+          cd ../secrets-service-rs && cargo audit
+          cd ../logging-service-rs && cargo audit
+          cd ../mind-kb-rs && cargo audit
+          # Add the rest of the services here
+          
+      - name: Dependabot alert check
+        run: |
+          # Check if there are open dependabot alerts
+          curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${{ github.repository }}/dependabot/alerts?state=open" > alerts.json
+          
+          # Count open alerts
+          count=$(jq length alerts.json)
+          echo "There are $count open Dependabot alerts"
+          
+          # Report critical alerts
+          critical=$(jq '[.[] | select(.severity=="critical")] | length' alerts.json)
+          if [ $critical -gt 0 ]; then
+            echo "::warning::There are $critical critical Dependabot alerts that need attention!"
+            jq '.[] | select(.severity=="critical") | {package: .dependency.package.name, severity, summary, url: .html_url}' alerts.json
+          fi
+      
+  container-scanning:
+    name: Container Image Scanning
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - orchestrator-service-rs
+          - data-router-rs
+          - llm-service-rs
+          - tools-service-rs
+          - safety-service-rs
+          - secrets-service-rs
+          - logging-service-rs
+          - mind-kb-rs
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Build test image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./${{ matrix.service }}/Dockerfile
+          push: false
+          load: true
+          tags: security-scan/${{ matrix.service }}:test
+        
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: security-scan/${{ matrix.service }}:test
+          format: 'sarif'
+          output: 'trivy-results-${{ matrix.service }}.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
+          category: trivy-${{ matrix.service }}
+      
+      - name: Run Dockle image linter
+        uses: erzz/dockle-action@v1
+        with:
+          image: security-scan/${{ matrix.service }}:test
+          exit-code: 1
+          failure-threshold: WARN
+          accept-filenames: "/.dockerignore,/Dockerfile"
+          
+  code-scanning:
+    name: Code Security Scanning
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript, rust
+          
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+        
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+  dependency-updates:
+    name: Check for Dependency Updates
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          
+      - name: Check for frontend dependency updates
+        working-directory: frontend
+        run: |
+          npm outdated --long > frontend-outdated.txt
+          echo "Frontend dependencies needing updates:"
+          cat frontend-outdated.txt
+          
+      - name: Check for Rust dependency updates
+        run: |
+          cargo install cargo-outdated
+          for service in */Cargo.toml; do
+            echo "Checking dependencies for $service..."
+            dir=$(dirname $service)
+            cd $dir
+            cargo outdated
+            cd ..
+          done
+          
+      - name: Create dependency update report
+        run: |
+          echo "# Dependency Update Report" > dependency-report.md
+          echo "## Frontend Dependencies" >> dependency-report.md
+          echo '```' >> dependency-report.md
+          cat frontend/frontend-outdated.txt >> dependency-report.md
+          echo '```' >> dependency-report.md
+          echo "## Recommended Actions" >> dependency-report.md
+          echo "- Review the outdated dependencies" >> dependency-report.md
+          echo "- Create PRs to update dependencies with security fixes" >> dependency-report.md
+          echo "- Schedule updates for major version changes" >> dependency-report.md
+          
+      - name: Upload dependency report
+        uses: actions/upload-artifact@v3
+        with:
+          name: dependency-report
+          path: dependency-report.md
+          
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          
+      - name: Scan for secrets with TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          
+      - name: Check .env files for security issues
+        run: |
+          echo "Checking .env files for security issues..."
+          # Look for .env files without .example suffix
+          find . -name ".env*" -not -name "*.example" -not -name "*.dev" -not -name "*.staging" -not -name "*.production" | while read file; do
+            echo "::warning::Found potential plaintext environment file: $file"
+          done
+          
+          # Check for secrets in example files
+          find . -name ".env*.example" | xargs grep -l "BEGIN PRIVATE KEY\|BEGIN RSA PRIVATE KEY\|AIza[0-9A-Za-z-_]\{35\}" || echo "No API keys found in example files"
+
+  report:
+    name: Generate Security Report
+    needs: [dependency-scan, container-scanning, code-scanning, dependency-updates, secret-scanning]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Generate security report
+        run: |
+          echo "# Security Scan Report $(date)" > security-report.md
+          echo "## Summary" >> security-report.md
+          echo "- Dependency scan: ${{ needs.dependency-scan.result }}" >> security-report.md
+          echo "- Container scanning: ${{ needs.container-scanning.result }}" >> security-report.md
+          echo "- Code scanning: ${{ needs.code-scanning.result }}" >> security-report.md
+          echo "- Dependency updates check: ${{ needs.dependency-updates.result }}" >> security-report.md
+          echo "- Secret scanning: ${{ needs.secret-scanning.result }}" >> security-report.md
+          
+      - name: Upload security report
+        uses: actions/upload-artifact@v3
+        with:
+          name: security-report
+          path: security-report.md
+          
+      - name: Send notification on failure
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@v1.23.0
+        with:
+          payload: |
+            {
+              "text": "⚠️ *Security Scan Failures Detected* ⚠️\n\nThe scheduled security scan has detected issues that need immediate attention.",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "⚠️ Security Scan Failures Detected"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "The scheduled security scan has detected issues that need immediate attention."
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Workflow:* ${{ github.workflow }}\n*Repo:* ${{ github.repository }}"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow Run"
+                      },
+                      "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

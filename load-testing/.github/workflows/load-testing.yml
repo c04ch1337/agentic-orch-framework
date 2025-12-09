@@ -1,0 +1,247 @@
+name: Phoenix Orchestrator Load Testing
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Type of load test to run'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - baseline
+          - journey
+          - stress
+      environment:
+        description: 'Environment to test against'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - dev
+          - staging
+          - production
+      duration:
+        description: 'Test duration in seconds (ignored for smoke tests)'
+        required: false
+        default: '60'
+  
+  schedule:
+    # Run daily performance tests at midnight
+    - cron: '0 0 * * *'
+
+  # Optionally run on pull request to specific branches
+  pull_request:
+    branches:
+      - main
+      - release/*
+    paths:
+      # Only run when changes affect key services
+      - 'orchestrator-rs/**'
+      - 'data-router-rs/**'
+      - 'llm-service-rs/**'
+      - 'knowledge-base-rs/**'
+
+env:
+  DEFAULT_TARGET_URL: "http://orchestrator-service:50051"
+  DEFAULT_VUS: 5
+  DEFAULT_DURATION: "30s"
+  GRAFANA_URL: "http://grafana:3000"
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      test_type: ${{ steps.set-test-type.outputs.test_type }}
+      target_url: ${{ steps.set-config.outputs.target_url }}
+      vus: ${{ steps.set-config.outputs.vus }}
+      duration: ${{ steps.set-config.outputs.duration }}
+      environment: ${{ steps.set-config.outputs.environment }}
+    
+    steps:
+      - name: Determine Test Type
+        id: set-test-type
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "test_type=${{ github.event.inputs.test_type }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" == "schedule" ]; then
+            echo "test_type=baseline" >> $GITHUB_OUTPUT
+          else
+            echo "test_type=smoke" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Configure Test Parameters
+        id: set-config
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ENVIRONMENT="${{ github.event.inputs.environment }}"
+            if [ "${{ github.event.inputs.test_type }}" == "smoke" ]; then
+              DURATION="15s"
+              VUS=2
+            else
+              DURATION="${{ github.event.inputs.duration }}s"
+              VUS=5
+              if [ "${{ github.event.inputs.test_type }}" == "stress" ]; then
+                VUS=20
+              fi
+            fi
+          elif [ "${{ github.event_name }}" == "schedule" ]; then
+            ENVIRONMENT="staging"
+            DURATION="${{ env.DEFAULT_DURATION }}"
+            VUS="${{ env.DEFAULT_VUS }}"
+          else
+            ENVIRONMENT="dev"
+            DURATION="15s"
+            VUS=2
+          fi
+          
+          # Set target URL based on environment
+          if [ "$ENVIRONMENT" == "production" ]; then
+            TARGET_URL="https://api.phoenix-orchestrator.com"
+          elif [ "$ENVIRONMENT" == "staging" ]; then
+            TARGET_URL="https://staging-api.phoenix-orchestrator.com"
+          else
+            TARGET_URL="${{ env.DEFAULT_TARGET_URL }}"
+          fi
+          
+          echo "environment=$ENVIRONMENT" >> $GITHUB_OUTPUT
+          echo "target_url=$TARGET_URL" >> $GITHUB_OUTPUT
+          echo "vus=$VUS" >> $GITHUB_OUTPUT
+          echo "duration=$DURATION" >> $GITHUB_OUTPUT
+
+  load-test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Start Monitoring Stack
+        working-directory: ./load-testing
+        run: |
+          docker-compose up -d prometheus influxdb grafana
+          # Wait for services to be ready
+          sleep 10
+      
+      - name: Run Load Test
+        working-directory: ./load-testing
+        env:
+          TEST_TYPE: ${{ needs.prepare.outputs.test_type }}
+          TARGET_URL: ${{ needs.prepare.outputs.target_url }}
+          VUS: ${{ needs.prepare.outputs.vus }}
+          DURATION: ${{ needs.prepare.outputs.duration }}
+          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+        run: |
+          echo "Running $TEST_TYPE load test against $ENVIRONMENT environment"
+          echo "Parameters: VUs=$VUS, Duration=$DURATION, Target=$TARGET_URL"
+          
+          # Build testing Docker image
+          docker build -t phoenix-load-test .
+          
+          # Run the appropriate test scenario
+          if [ "$TEST_TYPE" == "smoke" ]; then
+            SCENARIO="baseline"
+          else
+            SCENARIO="$TEST_TYPE"
+          fi
+          
+          # Execute the test
+          docker run --network=load-testing_monitoring_network \
+            -e VUS="$VUS" \
+            -e DURATION="$DURATION" \
+            -e TARGET_URL="$TARGET_URL" \
+            -e K6_OUT="influxdb=http://influxdb:8086/k6" \
+            -v "$(pwd)/results:/results" \
+            phoenix-load-test "$SCENARIO"
+      
+      - name: Process Test Results 
+        working-directory: ./load-testing
+        run: |
+          # Install node for metrics processing
+          apt-get update && apt-get install -y nodejs npm
+          
+          # Run metrics aggregation
+          cd scripts
+          node aggregate-metrics.js ../results ../results/aggregated
+          
+          # Analyze the results against thresholds
+          ./analyze-results.sh ../results/aggregated/summary-report.json
+      
+      - name: Compare with Previous Benchmarks
+        working-directory: ./load-testing
+        run: |
+          if [ -f "./benchmarks/${{ needs.prepare.outputs.test_type }}.json" ]; then
+            ./scripts/compare-benchmarks.sh \
+              "./benchmarks/${{ needs.prepare.outputs.test_type }}.json" \
+              "./results/aggregated/summary-report.json" \
+              > "./results/benchmark-comparison.txt"
+            
+            cat "./results/benchmark-comparison.txt"
+          else
+            echo "No previous benchmarks found for comparison"
+          fi
+      
+      - name: Check Performance Regression
+        id: check-regression
+        working-directory: ./load-testing
+        run: |
+          if [ -f "./results/performance-regression.txt" ]; then
+            if grep -q "REGRESSION DETECTED" "./results/performance-regression.txt"; then
+              echo "regression=true" >> $GITHUB_OUTPUT
+              echo "::warning::Performance regression detected!"
+            else
+              echo "regression=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "regression=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Archive Test Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: load-test-results
+          path: |
+            ./load-testing/results/
+            ./load-testing/results/aggregated/
+          retention-days: 30
+        
+  notify:
+    needs: [prepare, load-test]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download test results
+        uses: actions/download-artifact@v2
+        with:
+          name: load-test-results
+          path: ./results
+      
+      - name: Send notification
+        if: ${{ needs.load-test.outputs.regression == 'true' || github.event_name == 'schedule' }}
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          TEST_TYPE: ${{ needs.prepare.outputs.test_type }}
+          ENVIRONMENT: ${{ needs.prepare.outputs.environment }}
+        run: |
+          # You can replace this with actual Slack/Teams notification
+          echo "Sending notification for $TEST_TYPE test on $ENVIRONMENT environment"
+          
+          SUMMARY=$(cat ./results/aggregated/summary-report.json | jq -r '.aggregatedMetrics')
+          STATUS="✅ Performance tests passed"
+          
+          if [ "${{ needs.load-test.outputs.regression }}" == "true" ]; then
+            STATUS="❌ Performance regression detected!"
+          fi
+          
+          # Post message to Slack
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data "{\"text\":\"$STATUS\n\nTest: $TEST_TYPE\nEnvironment: $ENVIRONMENT\n\n$SUMMARY\"}" \
+              $SLACK_WEBHOOK
+          fi
