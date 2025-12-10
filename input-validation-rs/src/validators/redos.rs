@@ -4,16 +4,13 @@
 //! safer regex implementations and timeout mechanisms.
 
 use crate::errors::{ValidationError, ValidationResult};
-use regex_automata::dfa::regex::Regex as DfaRegex;
-use regex_automata::dfa::dense::DenseDFA;
-use regex_automata::nfa::thompson::NFA;
-use regex_automata::util::syntax;
+use regex_automata::meta::Regex as DfaRegex;
 use std::time::{Duration, Instant};
 
 /// Maximum time allowed for regex matching (milliseconds)
 const DEFAULT_REGEX_TIMEOUT_MS: u64 = 100;
 
-/// Safe pattern match using regex-automata's DFA implementation
+/// Safe pattern match using regex-automata's meta Regex implementation
 /// which is less vulnerable to ReDoS attacks than the standard regex crate
 pub fn safe_pattern_match(input: &str, pattern: &str) -> ValidationResult<bool> {
     match DfaRegex::new(pattern) {
@@ -170,7 +167,7 @@ pub fn validate_tokens(
     } else if require_all {
         Err(ValidationError::PatternMismatch(format!(
             "Input doesn't contain all required tokens: {:?}", 
-            tokens.iter().filter(|&&t| !matches.contains(t)).collect::<Vec<_>>()
+            tokens.iter().filter(|&&t| !matches.contains(&t)).collect::<Vec<_>>()
         )))
     } else {
         Err(ValidationError::PatternMismatch(format!(

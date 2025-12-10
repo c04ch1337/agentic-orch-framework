@@ -27,6 +27,9 @@ pathdiff = "0.2"
 # Protection against ReDOS
 regex-automata = "0.3"
 
+# Glob pattern matching
+glob_match = "0.2"
+
 [dev-dependencies]
 tokio = { version = "1.28", features = ["full"] }
 tokio-test = "0.4"

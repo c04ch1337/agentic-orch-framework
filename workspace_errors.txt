@@ -1,0 +1,1041 @@
+﻿cargo : warning: virtual 
+workspace defaulting to 
+`resolver = "1"` despite 
+one or more workspace 
+members being on edition 
+2024 which implies 
+`resolver = "3"`
+At line:1 char:1
++ cargo check --workspace 
+2>&1 | Out-File -FilePath 
+"workspace_errors.t ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~
+    + CategoryInfo        
+      : NotSpecified: (w  
+  arning: virtua...reso   
+ lver = "3"`:String) [    
+], RemoteException
+    + FullyQualifiedError 
+   Id : NativeCommandErr  
+  or
+ 
+note: to keep the current 
+resolver, specify 
+`workspace.resolver = 
+"1"` in the workspace 
+root's manifest
+note: to use the edition 
+2024 resolver, specify 
+`workspace.resolver = 
+"3"` in the workspace 
+root's manifest
+note: for more details 
+see https://doc.rust-lang.
+org/cargo/reference/resolv
+er.html#resolver-versions
+warning: C:\Users\JAMEYMIL
+NER\AppData\Local\system-b
+uild-rs\Cargo.toml: 
+unused manifest key: 
+profile.release.resolver
+   Compiling getrandom 
+v0.3.4
+    Checking windows-sys 
+v0.61.2
+   Compiling serde_core 
+v1.0.228
+   Compiling memchr v2.7.6
+   Compiling anyhow 
+v1.0.100
+    Checking tracing-core 
+v0.1.35
+    Checking futures-sink 
+v0.3.31
+    Checking slab v0.4.11
+   Compiling syn v2.0.111
+    Checking 
+windows_x86_64_msvc 
+v0.53.1
+    Checking 
+parking_lot_core v0.9.12
+    Checking pin-utils 
+v0.1.0
+    Checking futures-task 
+v0.3.31
+   Compiling regex-syntax 
+v0.8.8
+    Checking futures-io 
+v0.3.31
+    Checking 
+windows-targets v0.53.5
+    Checking 
+futures-channel v0.3.31
+   Compiling bytes v1.11.0
+   Compiling windows-link 
+v0.2.1
+    Checking getrandom 
+v0.2.16
+    Checking parking_lot 
+v0.12.5
+    Checking windows-sys 
+v0.60.2
+   Compiling equivalent 
+v1.0.2
+   Compiling aho-corasick 
+v1.1.4
+    Checking hashbrown 
+v0.16.1
+   Compiling once_cell 
+v1.21.3
+   Compiling fastrand 
+v2.3.0
+   Compiling log v0.4.29
+    Checking 
+tower-service v0.3.3
+    Checking 
+percent-encoding v2.3.2
+    Checking fnv v1.0.7
+   Compiling bitflags 
+v2.10.0
+   Compiling heck v0.5.0
+   Compiling itertools 
+v0.14.0
+   Compiling prettyplease 
+v0.2.37
+    Checking try-lock 
+v0.2.5
+    Checking indexmap 
+v2.12.1
+    Checking want v0.3.1
+    Checking httparse 
+v1.10.1
+    Checking httpdate 
+v1.0.3
+   Compiling multimap 
+v0.10.1
+   Compiling 
+pulldown-cmark v0.13.0
+   Compiling unicase 
+v2.8.1
+   Compiling fixedbitset 
+v0.5.7
+    Checking mime v0.3.17
+   Compiling jobserver 
+v0.1.34
+    Checking socket2 
+v0.6.1
+   Compiling libc v0.2.178
+   Compiling 
+regex-automata v0.4.13
+   Compiling cc v1.2.49
+    Checking tower-layer 
+v0.3.3
+    Checking 
+stable_deref_trait v1.2.1
+    Checking ipnet v2.11.0
+   Compiling petgraph 
+v0.7.1
+   Compiling serde_json 
+v1.0.145
+    Checking ryu v1.0.20
+    Checking rand_core 
+v0.6.4
+   Compiling 
+windows_x86_64_msvc 
+v0.52.6
+    Checking http v1.4.0
+   Compiling zerocopy 
+v0.8.31
+   Compiling 
+pulldown-cmark-to-cmark 
+v21.1.0
+   Compiling autocfg 
+v1.5.0
+    Checking http-body 
+v1.0.1
+    Checking writeable 
+v0.6.2
+    Checking litemap 
+v0.8.1
+   Compiling 
+icu_normalizer_data v2.1.1
+   Compiling 
+icu_properties_data v2.1.1
+   Compiling syn v1.0.109
+    Checking 
+form_urlencoded v1.2.2
+    Checking atomic-waker 
+v1.1.2
+    Checking 
+http-body-util v0.1.3
+    Checking 
+windows-strings v0.5.1
+    Checking 
+windows-result v0.4.1
+   Compiling synstructure 
+v0.13.2
+    Checking utf8_iter 
+v1.0.4
+    Checking 
+windows-registry v0.6.1
+    Checking sync_wrapper 
+v1.0.2
+   Compiling thiserror 
+v1.0.69
+    Checking base64 
+v0.22.1
+    Checking lazy_static 
+v1.5.0
+    Checking http v0.2.12
+   Compiling tonic-build 
+v0.14.2
+    Checking 
+windows-targets v0.52.6
+    Checking 
+tinyvec_macros v0.1.1
+    Checking uuid v1.19.0
+    Checking tinyvec 
+v1.10.0
+    Checking windows-sys 
+v0.52.0
+   Compiling native-tls 
+v0.2.14
+   Compiling regex v1.12.2
+    Checking http-body 
+v0.4.6
+   Compiling ahash v0.7.8
+    Checking ppv-lite86 
+v0.2.21
+    Checking 
+unicode-normalization 
+v0.1.25
+    Checking subtle v2.6.1
+    Checking unicode-bidi 
+v0.3.18
+   Compiling tempfile 
+v3.23.0
+   Compiling num-traits 
+v0.2.19
+    Checking rand_chacha 
+v0.3.1
+   Compiling serde_derive 
+v1.0.228
+   Compiling tokio-macros 
+v2.6.0
+   Compiling 
+tracing-attributes v0.1.31
+   Compiling 
+futures-macro v0.3.31
+   Compiling prost-derive 
+v0.14.1
+   Compiling async-trait 
+v0.1.89
+   Compiling 
+zerofrom-derive v0.1.6
+    Checking mio v1.1.1
+   Compiling yoke-derive 
+v0.8.1
+   Compiling 
+zerovec-derive v0.11.2
+   Compiling displaydoc 
+v0.2.5
+   Compiling 
+pin-project-internal 
+v1.1.10
+    Checking tokio v1.48.0
+    Checking futures-util 
+v0.3.31
+   Compiling 
+thiserror-impl v1.0.69
+    Checking schannel 
+v0.1.28
+    Checking socket2 
+v0.5.10
+    Checking tracing 
+v0.1.43
+    Checking rand v0.8.5
+   Compiling ring v0.17.14
+    Checking zerofrom 
+v0.1.6
+    Checking anstyle 
+v1.0.13
+    Checking 
+once_cell_polyfill v1.70.2
+    Checking yoke v0.8.1
+    Checking utf8parse 
+v0.2.2
+   Compiling prost v0.14.1
+    Checking pin-project 
+v1.1.10
+    Checking typenum 
+v1.19.0
+    Checking 
+anstyle-wincon v3.0.11
+    Checking 
+anstyle-query v1.1.5
+    Checking 
+anstyle-parse v0.2.7
+    Checking 
+is_terminal_polyfill 
+v1.70.2
+    Checking zerovec 
+v0.11.5
+    Checking zerotrie 
+v0.2.3
+   Compiling crc32fast 
+v1.5.0
+    Checking colorchoice 
+v1.0.4
+    Checking hashbrown 
+v0.12.3
+   Compiling prost-types 
+v0.14.1
+    Checking anstream 
+v0.6.21
+    Checking encoding_rs 
+v0.8.35
+   Compiling winapi v0.3.9
+    Checking simd-adler32 
+v0.3.8
+   Compiling 
+crossbeam-utils v0.8.21
+    Checking 
+generic-array v0.14.7
+   Compiling rustversion 
+v1.0.22
+    Checking adler2 v2.0.1
+    Checking tinystr 
+v0.8.2
+    Checking 
+potential_utf v0.1.4
+    Checking base64 
+v0.21.7
+   Compiling 
+windows_x86_64_msvc 
+v0.48.5
+    Checking 
+icu_collections v2.1.1
+    Checking miniz_oxide 
+v0.8.9
+    Checking 
+icu_locale_core v2.1.1
+    Checking axum-core 
+v0.5.5
+    Checking serde 
+v1.0.228
+    Checking matchit 
+v0.8.4
+    Checking untrusted 
+v0.9.0
+   Compiling prost-build 
+v0.14.1
+    Checking flate2 v1.1.5
+   Compiling indexmap 
+v1.9.3
+   Compiling time-core 
+v0.1.6
+    Checking icu_provider 
+v2.1.1
+   Compiling num-conv 
+v0.1.0
+    Checking powerfmt 
+v0.2.0
+    Checking zeroize 
+v1.8.2
+    Checking 
+serde_urlencoded v0.7.1
+   Compiling 
+tonic-prost-build v0.14.2
+    Checking 
+windows-targets v0.48.5
+   Compiling time-macros 
+v0.2.24
+    Checking deranged 
+v0.5.5
+    Checking 
+crypto-common v0.1.7
+    Checking 
+rustls-pki-types v1.13.1
+    Checking 
+icu_properties v2.1.1
+    Checking 
+icu_normalizer v2.1.1
+   Compiling ahash v0.8.12
+    Checking sync_wrapper 
+v0.1.2
+   Compiling ident_case 
+v1.0.1
+   Compiling pkg-config 
+v0.3.32
+   Compiling cookie 
+v0.17.0
+   Compiling itertools 
+v0.10.5
+    Checking tokio-util 
+v0.7.17
+    Checking tokio-stream 
+v0.1.17
+    Checking 
+tokio-native-tls v0.3.1
+    Checking bitflags 
+v1.3.2
+    Checking psl-types 
+v2.0.11
+    Checking 
+compression-core v0.4.31
+    Checking windows-sys 
+v0.48.0
+    Checking idna_adapter 
+v1.2.1
+    Checking 
+futures-executor v0.3.31
+    Checking env_filter 
+v0.1.4
+    Checking idna v0.3.0
+    Checking jiff v0.2.16
+    Checking idna v1.1.0
+   Compiling fixedbitset 
+v0.4.2
+    Checking chrono 
+v0.4.42
+    Checking 
+compression-codecs v0.4.34
+    Checking h2 v0.4.12
+    Checking tower v0.5.2
+    Checking h2 v0.3.27
+    Checking 
+async-compression v0.4.35
+   Compiling petgraph 
+v0.6.5
+    Checking url v2.5.7
+    Checking time v0.3.44
+    Checking publicsuffix 
+v2.3.0
+   Compiling prost-derive 
+v0.11.9
+    Checking futures 
+v0.3.31
+    Checking 
+rustls-pemfile v1.0.4
+    Checking matchit 
+v0.7.3
+    Checking tower v0.4.13
+    Checking 
+tracing-serde v0.2.0
+    Checking nu-ansi-term 
+v0.50.3
+    Checking matchers 
+v0.2.0
+    Checking sharded-slab 
+v0.1.7
+    Checking axum v0.8.7
+    Checking tracing-log 
+v0.2.0
+    Checking thread_local 
+v1.1.9
+    Checking pathdiff 
+v0.2.3
+   Compiling rustls 
+v0.23.35
+    Checking cpufeatures 
+v0.2.17
+    Checking base64 
+v0.13.1
+    Checking 
+tracing-subscriber v0.3.22
+    Checking regex-syntax 
+v0.7.5
+   Compiling rustix 
+v0.38.44
+   Compiling windows-sys 
+v0.59.0
+    Checking 
+rustls-webpki v0.103.8
+    Checking 
+crossbeam-epoch v0.9.18
+    Checking cookie_store 
+v0.20.0
+   Compiling errno v0.3.14
+   Compiling prettyplease 
+v0.1.25
+    Checking iri-string 
+v0.7.9
+   Compiling strsim 
+v0.10.0
+    Checking env_logger 
+v0.11.8
+    Checking 
+allocator-api2 v0.2.21
+    Checking winreg 
+v0.50.0
+   Compiling 
+portable-atomic v1.11.1
+   Compiling darling_core 
+v0.14.4
+    Checking hyper 
+v0.14.32
+    Checking hyper v1.8.1
+   Compiling prost v0.11.9
+    Checking inout v0.1.4
+    Checking idna v0.4.0
+   Compiling home v0.5.12
+    Checking hashbrown 
+v0.14.5
+   Compiling itertools 
+v0.12.1
+    Checking path-dedot 
+v3.1.1
+    Checking windows-link 
+v0.1.3
+    Checking 
+minimal-lexical v0.2.1
+    Checking validator 
+v0.16.1
+   Compiling prost-types 
+v0.11.9
+    Checking cipher v0.4.4
+    Checking 
+path-absolutize v3.1.1
+    Checking tower-http 
+v0.6.8
+   Compiling which v4.4.2
+    Checking nom v7.1.3
+    Checking 
+regex-automata v0.3.9
+   Compiling zstd-sys 
+v2.0.16+zstd.1.5.7
+    Checking webpki-roots 
+v1.0.4
+   Compiling axum-core 
+v0.3.4
+    Checking block-buffer 
+v0.10.4
+    Checking hyper-util 
+v0.1.19
+   Compiling 
+async-stream-impl v0.3.6
+   Compiling multimap 
+v0.8.3
+    Checking dotenv 
+v0.15.0
+   Compiling prost-derive 
+v0.12.6
+   Compiling ucd-trie 
+v0.1.7
+   Compiling heck v0.4.1
+    Checking tokio-rustls 
+v0.26.4
+    Checking digest 
+v0.10.7
+   Compiling pest v2.8.4
+   Compiling prost-build 
+v0.11.9
+   Compiling axum v0.6.20
+    Checking num-integer 
+v0.1.46
+   Compiling strsim 
+v0.11.1
+   Compiling 
+darling_macro v0.14.4
+    Checking config-rs 
+v0.1.0 (C:\Users\JAMEYMILN
+ER\AppData\Local\system-bu
+ild-rs\config-rs)
+    Checking async-stream 
+v0.3.6
+   Compiling darling_core 
+v0.20.11
+    Checking aes v0.8.4
+    Checking 
+windows-result v0.3.4
+    Checking 
+windows-strings v0.4.2
+    Checking 
+hyper-timeout v0.5.2
+   Compiling darling 
+v0.14.4
+    Checking hyper-rustls 
+v0.27.7
+    Checking hyper-tls 
+v0.6.0
+   Compiling 
+derive_builder_core 
+v0.12.0
+   Compiling tonic-build 
+v0.9.2
+   Compiling bzip2-sys 
+v0.1.13+1.0.8
+    Checking tonic v0.14.2
+    Checking hyper-tls 
+v0.5.0
+    Checking 
+tokio-io-timeout v1.2.1
+    Checking reqwest 
+v0.12.25
+    Checking 
+input-validation-rs 
+v0.1.0 (C:\Users\JAMEYMILN
+ER\AppData\Local\system-bu
+ild-rs\input-validation-rs
+)
+    Checking reqwest 
+v0.11.27
+   Compiling pest_meta 
+v2.8.4
+error[E0432]: unresolved 
+import `regex_automata::df
+a::dense::DenseDFA`
+ --> input-validation-rs\s
+rc\validators\redos.rs:8:5
+  |
+8 | use regex_automata::df
+a::dense::DenseDFA;
+  |     ^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^ no 
+`DenseDFA` in `dfa::dense`
+
+    Checking axum-core 
+v0.4.5
+warning: unused import: `s
+td::collections::HashSet`
+ --> input-validation-rs\s
+rc\validators\path.rs:9:5
+  |
+9 | use 
+std::collections::HashSet;
+  |     
+^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: 
+`#[warn(unused_imports)]` 
+(part of 
+`#[warn(unused)]`) on by 
+default
+
+warning: unused import: 
+`pathdiff::diff_paths`
+  --> input-validation-rs\
+src\validators\path.rs:10:
+5
+   |
+10 | use 
+pathdiff::diff_paths;
+   |     
+^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: 
+`regex::Regex`
+ --> input-validation-rs\s
+rc\validators\security.rs:
+7:5
+  |
+7 | use regex::Regex;
+  |     ^^^^^^^^^^^^
+
+warning: unused import: `r
+egex_automata::nfa::thomps
+on::NFA`
+ --> input-validation-rs\s
+rc\validators\redos.rs:9:5
+  |
+9 | use regex_automata::nf
+a::thompson::NFA;
+  |     ^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^
+
+warning: unused import: `r
+egex_automata::util::synta
+x`
+  --> input-validation-rs\
+src\validators\redos.rs:10
+:5
+   |
+10 | use regex_automata::u
+til::syntax;
+   |     ^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^
+
+warning: ambiguous glob 
+re-exports
+  --> input-validation-rs\
+src\validators\mod.rs:15:9
+   |
+15 | pub use string::*;
+   |         ^^^^^^^^^ 
+the name `not_empty` in 
+the value namespace is 
+first re-exported here
+...
+19 | pub use generic::*;
+   |         ---------- 
+but the name `not_empty` 
+in the value namespace is 
+also re-exported here
+   |
+   = note: `#[warn(ambiguo
+us_glob_reexports)]` on 
+by default
+
+warning: ambiguous glob 
+re-exports
+  --> input-validation-rs\
+src\validators\mod.rs:15:9
+   |
+15 | pub use string::*;
+   |         ^^^^^^^^^ 
+the name `min_length` in 
+the value namespace is 
+first re-exported here
+...
+19 | pub use generic::*;
+   |         ---------- 
+but the name `min_length` 
+in the value namespace is 
+also re-exported here
+
+warning: ambiguous glob 
+re-exports
+  --> input-validation-rs\
+src\validators\mod.rs:15:9
+   |
+15 | pub use string::*;
+   |         ^^^^^^^^^ 
+the name `max_length` in 
+the value namespace is 
+first re-exported here
+...
+19 | pub use generic::*;
+   |         ---------- 
+but the name `max_length` 
+in the value namespace is 
+also re-exported here
+
+warning: ambiguous glob 
+re-exports
+  --> input-validation-rs\
+src\validators\mod.rs:15:9
+   |
+15 | pub use string::*;
+   |         ^^^^^^^^^ 
+the name 
+`matches_pattern` in the 
+value namespace is first 
+re-exported here
+...
+18 | pub use path::*;
+   |         ------- but 
+the name 
+`matches_pattern` in the 
+value namespace is also 
+re-exported here
+
+warning: ambiguous glob 
+re-exports
+  --> input-validation-rs\
+src\validators\mod.rs:16:9
+   |
+16 | pub use numeric::*;
+   |         ^^^^^^^^^^ 
+the name `one_of` in the 
+value namespace is first 
+re-exported here
+...
+19 | pub use generic::*;
+   |         ---------- 
+but the name `one_of` in 
+the value namespace is 
+also re-exported here
+
+warning: ambiguous glob 
+re-exports
+  --> input-validation-rs\
+src\validators\mod.rs:17:9
+   |
+17 | pub use url::*;
+   |         ^^^^^^ the 
+name `no_path_traversal` 
+in the value namespace is 
+first re-exported here
+...
+20 | pub use security::*;
+   |         ----------- 
+but the name 
+`no_path_traversal` in 
+the value namespace is 
+also re-exported here
+
+    Checking 
+serde_spanned v0.6.9
+error[E0433]: failed to 
+resolve: use of 
+unresolved module or 
+unlinked crate 
+`glob_match`
+   --> input-validation-rs
+\src\validators\path.rs:26
+7:12
+    |
+267 |         if glob_matc
+h::glob_match(pattern, 
+path) {
+    |            
+^^^^^^^^^^ use of 
+unresolved module or 
+unlinked crate 
+`glob_match`
+    |
+    = help: if you wanted 
+to use a crate named 
+`glob_match`, use `cargo 
+add glob_match` to add it 
+to your `Cargo.toml`
+
+    Checking 
+toml_datetime v0.6.11
+   Compiling 
+windows-implement v0.60.2
+error[E0308]: mismatched 
+types
+   --> input-validation-rs
+\src\validators\redos.rs:1
+73:58
+    |
+173 |             tokens.i
+ter().filter(|&&t| !matche
+s.contains(t)).collect::<V
+ec<_>>()
+    |                     
+                          
+  -------- ^ expected 
+`&&str`, found `&str`
+    |                     
+                          
+  |
+    |                     
+                          
+  arguments to this 
+method are incorrect
+    |
+    = note: expected 
+reference `&&_`
+               found 
+reference `&_`
+note: method defined here
+   --> /rustc/ed61e7d7e242
+494fb7057f2657300d9e77bb4f
+cb\library\core\src\slice\
+mod.rs:2583:12
+
+error[E0277]: the size 
+for values of type `str` 
+cannot be known at 
+compilation time
+   --> input-validation-rs
+\src\sanitizers\string.rs:
+235:14
+    |
+235 |             |s| 
+remove_control_chars(&s),
+    |              ^ 
+doesn't have a size known 
+at compile-time
+    |
+    = help: the trait 
+`Sized` is not 
+implemented for `str`
+    = note: all function 
+arguments must have a 
+statically known size
+
+error[E0277]: the size 
+for values of type `str` 
+cannot be known at 
+compilation time
+   --> input-validation-rs
+\src\sanitizers\string.rs:
+236:14
+    |
+236 |             |s| 
+normalize_unicode(&s),
+    |              ^ 
+doesn't have a size known 
+at compile-time
+    |
+    = help: the trait 
+`Sized` is not 
+implemented for `str`
+    = note: all function 
+arguments must have a 
+statically known size
+
+error[E0277]: the size 
+for values of type `str` 
+cannot be known at 
+compilation time
+   --> input-validation-rs
+\src\sanitizers\string.rs:
+237:14
+    |
+237 |             |s| 
+trim_whitespace(&s),
+    |              ^ 
+doesn't have a size known 
+at compile-time
+    |
+    = help: the trait 
+`Sized` is not 
+implemented for `str`
+    = note: all function 
+arguments must have a 
+statically known size
+
+error[E0277]: the size 
+for values of type `str` 
+cannot be known at 
+compilation time
+   --> input-validation-rs
+\src\sanitizers\string.rs:
+238:14
+    |
+238 |             |s| norm
+alize_line_endings(&s),
+    |              ^ 
+doesn't have a size known 
+at compile-time
+    |
+    = help: the trait 
+`Sized` is not 
+implemented for `str`
+    = note: all function 
+arguments must have a 
+statically known size
+
+error[E0631]: type 
+mismatch in function 
+arguments
+   --> input-validation-rs
+\src\sanitizers\string.rs:
+234:9
+    |
+232 |       
+chain_sanitizers(
+    |       
+---------------- required 
+by a bound introduced by 
+this call
+233 |           
+input.to_string(),
+234 | /         vec![
+235 | |             |s| 
+remove_control_chars(&s),
+236 | |             |s| 
+normalize_unicode(&s),
+237 | |             |s| 
+trim_whitespace(&s),
+238 | |             |s| no
+rmalize_line_endings(&s),
+239 | |         ],
+    | |         ^
+    | |         |
+    | |_________expected 
+due to this
+    |           found 
+signature defined here
+    |
+    = note: expected 
+function signature 
+`fn(std::string::String) 
+-> _`
+               found 
+function signature 
+`fn(str) -> _`
+note: required by a bound 
+in `chain_sanitizers`
+   --> input-validation-rs
+\src\sanitizers\mod.rs:73:
+8
+    |
+ 71 | pub fn 
+chain_sanitizers<T, 
+F>(input: T, sanitizers: 
+Vec<F>) -> 
+SanitizeResult<T>
+    |        
+---------------- required 
+by a bound in this 
+function
+ 72 | where
+ 73 |     F: FnOnce(T) -> 
+SanitizeResult<T>,
+    |        ^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^ 
+required by this bound in 
+`chain_sanitizers`
+
+error[E0277]: the trait 
+bound `&Cow<'_, str>: std:
+:str::pattern::Pattern` 
+is not satisfied
+   --> input-validation-rs
+\src\sanitizers\path.rs:11
+5:29
+    |
+115 |     if path_str.star
+ts_with(&base_str) {
+    |                 
+----------- ^^^^^^^^^ the 
+trait `Fn(char)` is not 
+implemented for `Cow<'_, 
+str>`
+    |                 |
+    |                 
+required by a bound 
+introduced by this call
+    |
+    = note: required for 
+`&Cow<'_, str>` to 
+implement `FnOnce(char)`
+    = note: required for 
+`&Cow<'_, str>` to 
+implement `std::str::patte
+rn::Pattern`
+note: required by a bound 
+in `core::str::<impl 
+str>::starts_with`
+   --> /rustc/ed61e7d7e242
+494fb7057f2657300d9e77bb4f
+cb\library\core\src\str\mo
+d.rs:1378:5
+help: consider 
+dereferencing here
+    |
+115 |     if path_str.star
+ts_with(&*base_str) {
+    |                     
+         +
+
+   Compiling 
+windows-interface v0.59.3
+    Checking 
+serde_path_to_error 
+v0.1.20
+Some errors have detailed 
+explanations: E0277, 
+E0308, E0432, E0433, 
+E0631.
+For more information 
+about an error, try 
+`rustc --explain E0277`.
+warning: 
+`input-validation-rs` 
+(lib) generated 11 
+warnings
+error: could not compile 
+`input-validation-rs` 
+(lib) due to 9 previous 
+errors; 11 warnings 
+emitted
+warning: build failed, 
+waiting for other jobs to 
+finish...
