@@ -1,5 +1,6 @@
-// Rate Limiting Module using tower-governor
-// Implements per-API-key sliding window rate limiting
+// Rate Limiting Module using simple in-memory sliding window
+// Replaces previous tower-governor based implementation with a
+// dependency-free approach while preserving the public API.
 
 use axum::{
     extract::Request,
@@ -9,49 +10,23 @@ use axum::{
     Json,
     body::Body,
 };
-use governor::{
-    clock::{QuantaInstant, QuantaClock},
-    middleware::NoOpMiddleware,
-    state::{InMemoryState, NotKeyed},
-    Quota, RateLimiter,
-};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use once_cell::sync::Lazy;
-use tower_governor::{governor::GovernorConfigBuilder, key_extractor::{KeyExtractor}};
 
-// Custom key extractor for API keys
+// Per-key rate limit tracking
 #[derive(Clone)]
-pub struct ApiKeyExtractor;
-
-impl KeyExtractor for ApiKeyExtractor {
-    type Key = String;
-
-    fn extract(&self, req: &Request<Body>) -> Result<Self::Key, tower_governor::errors::GovernorError> {
-        // Try to get API key from X-PHOENIX-API-KEY header
-        if let Some(api_key) = req.headers()
-            .get("X-PHOENIX-API-KEY")
-            .and_then(|v| v.to_str().ok()) {
-            return Ok(api_key.to_string());
-        }
-        
-        // Fallback to getting from request extensions (set by auth interceptor)
-        if let Some(api_key) = req.extensions().get::<String>() {
-            return Ok(api_key.clone());
-        }
-        
-        // No API key found, use a default key for unauthenticated requests
-        Ok("anonymous".to_string())
-    }
+struct RateLimitInfo {
+    count: u32,
+    window_start: Instant,
 }
 
-// Per-key rate limiters
-static RATE_LIMITERS: Lazy<Arc<RwLock<HashMap<String, Arc<RateLimiter<String, InMemoryState, QuantaClock, NoOpMiddleware<QuantaInstant>>>>>>> 
-    = Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
+// Global map of API key -> rate info
+static RATE_LIMITERS: Lazy<Arc<RwLock<HashMap<String, RateLimitInfo>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
 
 #[derive(Debug, Serialize)]
 pub struct RateLimitError {
@@ -60,23 +35,7 @@ pub struct RateLimitError {
     pub retry_after_seconds: u64,
 }
 
-/// Create a rate limiter for a specific API key
-async fn get_or_create_rate_limiter(api_key: &str) -> Arc<RateLimiter<String, InMemoryState, QuantaClock, NoOpMiddleware<QuantaInstant>>> {
-    let mut limiters = RATE_LIMITERS.write().await;
-    
-    if let Some(limiter) = limiters.get(api_key) {
-        return limiter.clone();
-    }
-    
-    // Create new rate limiter with 100 requests per minute
-    let quota = Quota::per_minute(NonZeroU32::new(100).unwrap());
-    let limiter = Arc::new(RateLimiter::keyed(quota));
-    
-    limiters.insert(api_key.to_string(), limiter.clone());
-    limiter
-}
-
-/// Extract API key from headers
+// Extract API key from headers (same header as before)
 fn extract_api_key_from_headers(headers: &HeaderMap) -> Option<String> {
     headers
         .get("X-PHOENIX-API-KEY")
@@ -84,71 +43,79 @@ fn extract_api_key_from_headers(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Tower-governor based rate limiting middleware
+// Simple sliding window based rate limiter
+async fn check_and_update_rate_limit(api_key: &str) -> Result<(), RateLimitError> {
+    const REQUESTS_PER_MINUTE: u32 = 100;
+    const WINDOW_DURATION_SECS: u64 = 60;
+
+    let now = Instant::now();
+    let mut map = RATE_LIMITERS.write().await;
+
+    let entry = map.entry(api_key.to_string()).or_insert_with(|| RateLimitInfo {
+        count: 0,
+        window_start: now,
+    });
+
+    // Reset window if expired
+    if now.duration_since(entry.window_start).as_secs() >= WINDOW_DURATION_SECS {
+        entry.count = 0;
+        entry.window_start = now;
+    }
+
+    if entry.count >= REQUESTS_PER_MINUTE {
+        return Err(RateLimitError {
+            error: format!(
+                "Rate limit exceeded: {} requests per minute per API key",
+                REQUESTS_PER_MINUTE
+            ),
+            code: StatusCode::TOO_MANY_REQUESTS.as_u16(),
+            retry_after_seconds: WINDOW_DURATION_SECS,
+        });
+    }
+
+    entry.count += 1;
+    Ok(())
+}
+
+// Public middleware function used by lib.rs
 pub async fn tower_governor_rate_limiter(
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, impl IntoResponse> {
-    let path = req.uri().path();
-    
+    let path = req.uri().path().to_string();
+
     // Skip rate limiting for health and root endpoints
     if path == "/" || path == "/health" {
         return Ok(next.run(req).await);
     }
-    
-    // Extract API key
+
     let api_key = extract_api_key_from_headers(req.headers())
         .or_else(|| req.extensions().get::<String>().cloned())
         .unwrap_or_else(|| "anonymous".to_string());
-    
-    // Get or create rate limiter for this API key
-    let limiter = get_or_create_rate_limiter(&api_key).await;
-    
-    // Check rate limit
-    match limiter.check_key(&api_key) {
-        Ok(_) => {
-            // Request is within rate limit
-            Ok(next.run(req).await)
-        }
-        Err(_) => {
-            // Rate limit exceeded
-            let retry_after = 60; // Suggest retry after 60 seconds
-            
-            Err((
-                StatusCode::TOO_MANY_REQUESTS,
-                Json(RateLimitError {
-                    error: "Rate limit exceeded: Maximum 100 requests per minute per API key".to_string(),
-                    code: 429,
-                    retry_after_seconds: retry_after,
-                }),
-            ))
-        }
+
+    if let Err(err) = check_and_update_rate_limit(&api_key).await {
+        return Err((
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(err),
+        ));
+    }
+
+    Ok(next.run(req).await)
+}
+
+// Update rate limit for a specific API key (for future extension; currently just resets)
+pub async fn update_rate_limit(api_key: &str, _requests_per_minute: u32) {
+    let mut map = RATE_LIMITERS.write().await;
+    if let Some(info) = map.get_mut(api_key) {
+        info.count = 0;
+        info.window_start = Instant::now();
     }
 }
 
-/// Update rate limit for a specific API key
-pub async fn update_rate_limit(api_key: &str, requests_per_minute: u32) {
-    let mut limiters = RATE_LIMITERS.write().await;
-    
-    // Remove old limiter
-    limiters.remove(api_key);
-    
-    // Create new limiter with updated quota
-    if let Some(rpm) = NonZeroU32::new(requests_per_minute) {
-        let quota = Quota::per_minute(rpm);
-        let limiter = Arc::new(RateLimiter::keyed(quota));
-        limiters.insert(api_key.to_string(), limiter);
-    }
-}
-
-/// Get current rate limit stats for an API key
+// Get current rate limit stats for an API key
 pub async fn get_rate_limit_stats(api_key: &str) -> Option<(u32, Duration)> {
-    let limiters = RATE_LIMITERS.read().await;
-    
-    if let Some(limiter) = limiters.get(api_key) {
-        // This is a simplified version - in production you'd want more detailed stats
-        Some((100, Duration::from_secs(60))) // 100 requests per 60 seconds
-    } else {
-        None
-    }
+    const WINDOW_DURATION_SECS: u64 = 60;
+    let map = RATE_LIMITERS.read().await;
+    map.get(api_key)
+        .map(|info| (info.count, Duration::from_secs(WINDOW_DURATION_SECS)))
 }

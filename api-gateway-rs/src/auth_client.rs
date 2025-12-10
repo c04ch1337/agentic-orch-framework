@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use once_cell::sync::Lazy;
 use tokio::sync::RwLock;
-use config_rs::ServiceConfig;
+
 use serde::{Deserialize, Serialize};
 
 // Local TokenData definition (matches the one in auth_middleware.rs)
@@ -46,6 +46,36 @@ pub enum AuthError {
 // Stubbed auth client for now - will be implemented when auth service proto is available
 // Static client that's accessible across the application
 static AUTH_CLIENT: Lazy<RwLock<Option<MockAuthClient>>> = Lazy::new(|| RwLock::new(None));
+
+/// Initialize the global auth client instance.
+/// For now this sets up a mock client with default configuration so that
+/// downstream middleware can operate without hitting a real auth service.
+pub async fn init_auth_client() -> Result<(), AuthError> {
+    let mut guard = AUTH_CLIENT.write().await;
+
+    // If already initialized, do nothing
+    if guard.is_some() {
+        return Ok(());
+    }
+
+    // Build a default mock configuration. These values are placeholders and
+    // can be adjusted once a real auth service is integrated.
+    let config = ConnectionConfig {
+        addr: "mock-auth-service:50051".to_string(),
+        service_id: "api-gateway".to_string(),
+        client_id: "api-gateway-client".to_string(),
+        client_secret: "dev-secret".to_string(),
+        use_mtls: false,
+        cert_path: None,
+        key_path: None,
+        ca_path: None,
+    };
+
+    let client = MockAuthClient { config };
+    *guard = Some(client);
+
+    Ok(())
+}
 
 #[derive(Debug, Clone)]
 struct ConnectionConfig {
@@ -133,47 +163,9 @@ impl MockAuthClient {
     }
     
     pub async fn get_service_token(&self) -> Result<String, AuthError> {
-        Ok("mock-service-token".to_string())
+        // Mock implementation: return a static service token derived from the client_id
+        Ok(format!("mock-service-token-{}", self.config.client_id))
     }
-}
-
-// Public interface functions to provide static access to the auth client
-
-pub async fn init_auth_client(
-    addr: &str,
-    service_id: &str,
-    client_id: &str,
-    client_secret: &str,
-    use_mtls: bool,
-    cert_path: Option<&str>,
-    key_path: Option<&str>,
-    ca_path: Option<&str>,
-) -> Result<(), AuthError> {
-    // Use standardized config to get auth service address if addr is empty or "default"
-    let config = ServiceConfig::new("api-gateway");
-    let resolved_addr = if addr.is_empty() || addr == "default" {
-        config.get_client_address("auth-service", 50090)
-    } else {
-        addr.to_string()
-    };
-    
-    log::info!("Initializing mock auth client (auth service integration disabled)");
-    
-    let client = MockAuthClient::connect(
-        &resolved_addr,
-        service_id,
-        client_id,
-        client_secret,
-        use_mtls,
-        cert_path,
-        key_path,
-        ca_path,
-    ).await?;
-    
-    let mut auth_client_guard = AUTH_CLIENT.write().await;
-    *auth_client_guard = Some(client);
-    
-    Ok(())
 }
 
 pub async fn validate_token(token: &str) -> Result<TokenData, AuthError> {

@@ -6,7 +6,7 @@
 
 ##  🌟 System Status: Phase XI - RSI Closed Loop Complete
 
-- **Microservices:** 23 (Control, Cognitive, Functional, Agents, Persistence, RSI)
+- **Microservices:** 25+ (Control, Cognitive, Functional, Agents, Persistence, RSI, Security)
 - **Communication:** gRPC (Internal), REST (External via API Gateway)
 - **Language:** Rust (2021/2024 edition)
 - **Architecture:** Event-driven, capability-based delegation with emergency protocols
@@ -46,60 +46,76 @@ Use the provided scripts to switch environments. This will backup your current `
 
 ## 🚀 Architecture Overview
 
-The system is organized as a single **Rust Workspace** containing 23 crates.
+The system is organized as a single **Rust Workspace** containing multiple crates. Below is a detailed reference of all modules.
 
 ### A. Control Plane (The Brain)
 
-| Service | Port | Description |
-| :--- | :--- | :--- |
-| **Orchestrator** | 50051 | **Central Nervous System.** Coordinates planning, execution, and delegation. Implements the "Plan-Validate-Execute-Reflect" loop. |
-| **Data Router** | 50052 | **Neural Bus.** Dynamic routing mesh. Handles service discovery and load balancing. |
-| **Context Manager** | 50064 | **Working Memory.** Aggregates context from KBs and enriches LLM prompts with sentiment/identity. |
-| **Reflection Service** | 50065 | **Meta-Cognition.** Analyzes past actions to improve future performance (self-learning). |
-| **Scheduler** | 50066 | **Time Management.** CRON-based task scheduling and execution. |
-| **Agent Registry** | 50067 | **Team Management.** Dynamic discovery of specialized agents based on capabilities. |
+| Service | Port | Description | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **Orchestrator** | 50051 | **Central Nervous System.** Coordinates planning, execution, and delegation. Implements the "Plan-Validate-Execute-Reflect" loop. | `Request` (User Query) | `AgiResponse` (Final Answer, Plan) |
+| **Data Router** | 50052 | **Neural Bus.** Dynamic routing mesh. Handles service discovery and load balancing. | `RouteRequest` | `RouteResponse` |
+| **Context Manager** | 50064 | **Working Memory.** Aggregates context from KBs and enriches LLM prompts with sentiment/identity. | `ContextRequest` | `EnrichedContext` |
+| **Reflection Service** | 50065 | **Meta-Cognition.** Analyzes past actions to improve future performance (self-learning). | `ReflectionRequest` | `ReflectionResult` |
+| **Scheduler** | 50066 | **Time Management.** CRON-based task scheduling and execution. | `ScheduleTaskRequest` | `ScheduleTaskResponse` |
+| **Agent Registry** | 50067 | **Team Management.** Dynamic discovery of specialized agents based on capabilities. | `GetAgentRequest` | `AgentInfo` |
 
 ### B. RSI Layer (Recursive Self-Improvement)
 
-| Service | Port | Description |
-| :--- | :--- | :--- |
-| **Log Analyzer** | 50075 | **Learning Input.** Analyzes execution logs for patterns, generates structured failure reports for learning. |
-| **Curiosity Engine** | 50076 | **Knowledge Drive.** Identifies knowledge gaps and proactively generates high-priority research tasks. |
+| Service | Port | Description | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **Log Analyzer** | 50075 | **Learning Input.** Analyzes execution logs for patterns, generates structured failure reports for learning. | `LogEntry` (Stream) | `AnalysisReport` |
+| **Curiosity Engine** | 50076 | **Knowledge Drive.** Identifies knowledge gaps and proactively generates high-priority research tasks. | `KnowledgeGap` | `ResearchTask` |
 
 ### C. Cognitive Layer (The Soul)
 
-| Service | Port | Specialization |
-| :--- | :--- | :--- |
-| **Mind-KB** | 50057 | **Facts & Logic.** Short-term episodic memory and vector-based semantic search. |
-| **Body-KB** | 50058 | **Physical State.** Sensor data, system health, and environment context. |
-| **Heart-KB** | 50059 | **Emotion.** Tracks sentiment (Neutral, Urgent, Frustrated) and emotional shifts. |
-| **Social-KB** | 50060 | **Identity.** Manages user profiles, roles, and communication preferences. |
-| **Soul-KB** | 50061 | **Ethics.** Immutable core values and ethical constraint enforcement. |
-| **Persistence-KB** | 50071 | **Self-Preservation.** Threat detection, emergency protocols, and system continuity strategies. |
+| Service | Port | Specialization | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **Mind-KB** | 50057 | **Facts & Logic.** Short-term episodic memory and vector-based semantic search. | `QueryRequest` | `QueryResponse` |
+| **Body-KB** | 50058 | **Physical State.** Sensor data, system health, and environment context. | `StoreRequest` | `StoreResponse` |
+| **Heart-KB** | 50059 | **Emotion.** Tracks sentiment (Neutral, Urgent, Frustrated) and emotional shifts. | `StoreSentimentRequest` | `StoreSentimentResponse` |
+| **Social-KB** | 50060 | **Identity.** Manages user profiles, roles, and communication preferences. | `GetUserRequest` | `UserIdentity` |
+| **Soul-KB** | 50061 | **Ethics.** Immutable core values and ethical constraint enforcement. | `CheckEthicsRequest` | `EthicsCheckResponse` |
+| **Persistence-KB** | 50071 | **Self-Preservation.** Threat detection, emergency protocols, and system continuity strategies. | `StoreRequest` | `StoreResponse` |
 
 ### D. Functional Layer (The Body)
 
-| Service | Port | Role |
-| :--- | :--- | :--- |
-| **LLM Service** | 50053 | Interface to LLM providers (OpenAI, Anthropic, Local). Handles generation and embedding. |
-| **Tools Service** | 50054 | Safe execution of external tools (Web Search, Calculator, Code Execution). |
-| **Safety Service** | 50055 | Input/Output filtering, PII redaction, and threat detection. |
-| **Logging Service** | 50056 | Centralized telemetry and structured logging. |
-| **Sensor Service** | 50062 | Hardware/System monitoring (CPU, Memory, Network). |
-| **Executor Service** | 50063 | Sandboxed command execution runtime. |
+| Service | Port | Role | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **LLM Service** | 50053 | Interface to LLM providers (OpenAI, Anthropic, Local). Handles generation and embedding. | `GenerateRequest` | `GenerateResponse` |
+| **Tools Service** | 50054 | Safe execution of external tools (Web Search, Calculator, Code Execution). | `ToolRequest` | `ToolResponse` |
+| **Safety Service** | 50055 | Input/Output filtering, PII redaction, and threat detection. | `ValidationRequest` | `ValidationResponse` |
+| **Logging Service** | 50056 | Centralized telemetry and structured logging. | `LogEntry` | `LogResponse` |
+| **Sensor Service** | 50062 | Hardware/System monitoring (CPU, Memory, Network). | `GetMetricsRequest` | `MetricsResponse` |
+| **Executor Service** | 50055 | **Sandboxed Runtime.** Native Windows execution of shell commands and scripts. | `CommandRequest` | `CommandResponse` |
 
 ### E. Specialized Agents (The Team)
 
-| Service | Port | Role |
-| :--- | :--- | :--- |
-| **Red Team** | 50068 | **Adversary.** Vulnerability scanning, attack simulation, security auditing. |
-| **Blue Team** | 50069 | **Defender.** Threat containment, system hardening, incident response. |
+| Service | Port | Role | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **Red Team** | 50068 | **Adversary.** Vulnerability scanning, attack simulation, security auditing. | `ScanRequest` | `ScanResult` |
+| **Blue Team** | 50069 | **Defender.** Threat containment, system hardening, incident response. | `AnomalyTriageRequest` | `TriageResult` |
 
-### F. Gateway (The Interface)
+### F. Security & Infrastructure
 
-| Service | Port | Role |
-| :--- | :--- | :--- |
-| **API Gateway** | 8000 | **REST Interface.** Exposes `POST /api/v1/execute` to external clients. Translates JSON to gRPC. |
+| Service | Port | Role | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **Auth Service** | 50090 | **Identity Provider.** JWT issuance, RBAC enforcement, and mTLS certificate management. | `LoginRequest` | `AuthToken` |
+| **Secrets Service** | 50080 | **Vault.** Secure storage for API keys, certificates, and sensitive configuration. | `GetSecretRequest` | `SecretValue` |
+
+### G. Gateway (The Interface)
+
+| Service | Port | Role | Inputs | Outputs |
+| :--- | :--- | :--- | :--- | :--- |
+| **API Gateway** | 8000 | **REST Interface.** Exposes `POST /api/v1/execute` to external clients. Translates JSON to gRPC. | `JSON Payload` | `JSON Response` |
+
+### H. Shared Libraries
+
+| Crate | Description |
+| :--- | :--- |
+| **tool-sdk** | SDK for building and registering new tools. |
+| **config-rs** | Centralized configuration management and service discovery utilities. |
+| **input-validation-rs** | Common validation logic for sanitizing inputs across services. |
+| **shared-types-rs** | Common Rust types and traits shared across the workspace. |
 
 ---
 
@@ -145,6 +161,31 @@ Test-NetConnection -ComputerName localhost -Port 50055
 For complete technical details, see:
 - [`executor-rs-windows-architecture.md`](executor-rs-windows-architecture.md) - Full architecture and component documentation
 - [`executor-rs-testing-report.md`](executor-rs-testing-report.md) - Testing results and identified issues
+
+---
+
+## 🛠️ Build & Development
+
+### Prerequisites
+- **Rust**: Latest stable version (2021/2024 edition)
+- **Protoc**: Protocol Buffers compiler (handled via `protoc-bin-vendored` in build scripts)
+- **OpenSSL**: Required for some dependencies (on Windows, use `vcpkg` or pre-built binaries)
+
+### Building the Workspace
+```powershell
+# Build all crates
+cargo build --workspace
+
+# Run tests
+cargo test --workspace
+```
+
+### Running Services
+Services can be run individually or orchestrated via scripts (coming soon).
+```powershell
+# Example: Run the Orchestrator
+cargo run -p orchestrator-service-rs
+```
 
 ---
 

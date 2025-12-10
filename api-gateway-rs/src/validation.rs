@@ -47,19 +47,13 @@ lazy_static::lazy_static! {
             "additionalProperties": false
         });
 
-        let options = CompilationOptions::new().with_draft(Draft::Draft7);
         JSONSchema::options()
             .with_draft(Draft::Draft7)
             .compile(&schema)
             .expect("Invalid schema")
     };
 
-    /// Map of endpoint paths to JSON schemas
-    pub static ref ENDPOINT_SCHEMAS: HashMap<&'static str, &'static JSONSchema> = {
-        let mut schemas = HashMap::new();
-        schemas.insert("/api/v1/execute", &EXECUTE_REQUEST_SCHEMA);
-        schemas
-    };
+    // No endpoint schema map; we use EXECUTE_REQUEST_SCHEMA directly.
 }
 
 /// Error response for validation failures
@@ -130,16 +124,21 @@ pub fn validate_content_type(headers: &HeaderMap, expected: &str) -> Result<(), 
 
 /// Validate JSON payload against a schema
 pub fn validate_json_schema(path: &str, json: &Value) -> Result<(), ApiValidationError> {
-    // Find the schema for this endpoint
-    let schema = ENDPOINT_SCHEMAS.get(path).ok_or_else(|| {
-        ApiValidationError::Schema(format!("No schema defined for path: {}", path))
-    })?;
-    
+    // Select the schema for this endpoint
+    let schema = match path {
+        "/api/v1/execute" => &*EXECUTE_REQUEST_SCHEMA,
+        _ => {
+            return Err(ApiValidationError::Schema(
+                format!("No schema defined for path: {}", path)
+            ));
+        }
+    };
+
     // Validate against schema
     let validation = schema.validate(json);
     if let Err(errors) = validation {
         let error_details: Vec<String> = errors
-            .map(|err| format!("{} at {}", err.kind, err.instance_path))
+            .map(|err| format!("{:?} at {}", err.kind, err.instance_path))
             .collect();
         
         return Err(ApiValidationError::Schema(

@@ -10,7 +10,7 @@ use axum::{
     extract::{State, Path},
     http::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE},
     middleware::{self, Next},
-    body::{Body, Bytes},
+    body::{Body, Bytes, to_bytes},
     response::{Response},
     BoxError,
 };
@@ -213,17 +213,11 @@ impl ApiGateway {
                         (
                             StatusCode::OK,
                             Json(ExecuteResponse {
-                                final_answer: String::from_utf8_lossy(&agi_response.payload).to_string(),
-                                execution_plan: agi_response.metadata.get("execution_plan")
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                routed_service: agi_response.metadata.get("routed_service")
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                phoenix_session_id: agi_response.id,
-                                output_artifact_urls: agi_response.metadata.get("output_artifacts")
-                                    .map(|urls| urls.split(',').map(String::from).collect())
-                                    .unwrap_or_default(),
+                                final_answer: agi_response.final_answer,
+                                execution_plan: agi_response.execution_plan,
+                                routed_service: agi_response.routed_service,
+                                phoenix_session_id: agi_response.phoenix_session_id,
+                                output_artifact_urls: agi_response.output_artifact_urls,
                             }),
                         ).into_response()
                     }
@@ -274,112 +268,115 @@ impl ApiGateway {
         }
     }
 
-    // Middleware implementations moved from main.rs
-    async fn validate_content_type_middleware(
-        headers: HeaderMap,
-        uri: axum::http::Uri,
-        next: Next,
-    ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
-        let path = uri.path();
-        
-        if !path.starts_with("/api/v1/") {
-            return Ok(next.run().await);
+        // Middleware implementations moved from main.rs
+        async fn validate_content_type_middleware(
+            req: axum::http::Request<Body>,
+            next: Next,
+        ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
+            let path = req.uri().path().to_string();
+    
+            if !path.starts_with("/api/v1/") {
+                return Ok(next.run(req).await);
+            }
+    
+            let required_content_type = match path.as_str() {
+                "/api/v1/execute" => "application/json",
+                _ => return Ok(next.run(req).await),
+            };
+    
+            if let Err(err) = validate_content_type(req.headers(), required_content_type) {
+                let (status, response) = err.to_response();
+                return Err((status, response));
+            }
+    
+            Ok(next.run(req).await)
         }
-        
-        let required_content_type = match path {
-            "/api/v1/execute" => "application/json",
-            _ => return Ok(next.run().await),
-        };
-        
-        if let Err(err) = validate_content_type(&headers, required_content_type) {
-            let (status, response) = err.to_response();
-            return Err((status, response));
-        }
-        
-        Ok(next.run().await)
-    }
-
-    async fn validate_request_middleware(
-        uri: axum::http::Uri,
-        method: axum::http::Method,
-        headers: HeaderMap,
-        body: Body,
-        next: Next,
-    ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
-        // Implementation moved from main.rs
-        let path = uri.path();
-        
-        if !path.starts_with("/api/v1/") || method != axum::http::Method::POST {
-            return Ok(next.run().await);
-        }
-        
-        if path == "/api/v1/token" || path == "/api/v1/health" {
-            return Ok(next.run().await);
-        }
-        
-        let body_bytes = match hyper::body::to_bytes(body).await {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                let error = ApiValidationError::InvalidFormat(
-                    format!("Failed to read request body: {}", e)
+    
+        async fn validate_request_middleware(
+            req: axum::http::Request<Body>,
+            next: Next,
+        ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
+            // Implementation moved from main.rs
+            let (parts, body) = req.into_parts();
+            let uri = parts.uri.clone();
+            let method = parts.method.clone();
+            let headers = parts.headers.clone();
+    
+            let path = uri.path().to_string();
+    
+            if !path.starts_with("/api/v1/") || method != axum::http::Method::POST {
+                let req = axum::http::Request::from_parts(parts, body);
+                return Ok(next.run(req).await);
+            }
+    
+            if path == "/api/v1/token" || path == "/api/v1/health" {
+                let req = axum::http::Request::from_parts(parts, body);
+                return Ok(next.run(req).await);
+            }
+    
+            let body_bytes = match to_bytes(body, MAX_PAYLOAD_SIZE).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    let error = ApiValidationError::InvalidFormat(
+                        format!("Failed to read request body: {}", e)
+                    );
+                    return Err(error.to_response());
+                }
+            };
+    
+            if body_bytes.len() > MAX_PAYLOAD_SIZE {
+                let error = ApiValidationError::PayloadTooLarge(
+                    format!("Request size {} exceeds maximum allowed size {}", body_bytes.len(), MAX_PAYLOAD_SIZE)
                 );
                 return Err(error.to_response());
             }
-        };
-        
-        if body_bytes.len() > MAX_PAYLOAD_SIZE {
-            let error = ApiValidationError::PayloadTooLarge(
-                format!("Request size {} exceeds maximum allowed size {}", body_bytes.len(), MAX_PAYLOAD_SIZE)
-            );
-            return Err(error.to_response());
-        }
-        
-        let body_str = match std::str::from_utf8(&body_bytes) {
-            Ok(s) => s,
-            Err(_) => {
-                let error = ApiValidationError::InvalidFormat("Request body is not valid UTF-8".to_string());
-                return Err(error.to_response());
+    
+            let body_str = match std::str::from_utf8(&body_bytes) {
+                Ok(s) => s,
+                Err(_) => {
+                    let error = ApiValidationError::InvalidFormat("Request body is not valid UTF-8".to_string());
+                    return Err(error.to_response());
+                }
+            };
+    
+            let sanitized_result = sanitize_json_input(body_str);
+            if let Err(err) = sanitized_result {
+                return Err(err.to_response());
             }
-        };
-        
-        let sanitized_result = sanitize_json_input(body_str);
-        if let Err(err) = sanitized_result {
-            return Err(err.to_response());
-        }
-        
-        let mut json_value = sanitized_result.unwrap();
-        
-        if let Err(err) = validate_request(path, &json_value) {
-            return Err(err.to_response());
-        }
-        
-        sanitize_request(path, &mut json_value);
-        
-        let sanitized_body = match serde_json::to_string(&json_value) {
-            Ok(body) => body,
-            Err(err) => {
-                let error = ApiValidationError::InvalidFormat(
-                    format!("Failed to serialize sanitized request: {}", err)
-                );
-                return Err(error.to_response());
+    
+            let mut json_value = sanitized_result.unwrap();
+    
+            if let Err(err) = validate_request(&path, &json_value) {
+                return Err(err.to_response());
             }
-        };
-        
-        let req_builder = axum::http::Request::builder()
-            .uri(uri)
-            .method(method);
-        
-        let mut req_builder = headers.iter().fold(req_builder, |builder, (name, value)| {
-            builder.header(name, value)
-        });
-        
-        let request = req_builder
-            .header(CONTENT_TYPE, "application/json")
-            .body(Body::from(sanitized_body))
-            .unwrap();
-        
-        Ok(next.run(request).await)
-    }
+    
+            sanitize_request(&path, &mut json_value);
+    
+            let sanitized_body = match serde_json::to_string(&json_value) {
+                Ok(body) => body,
+                Err(err) => {
+                    let error = ApiValidationError::InvalidFormat(
+                        format!("Failed to serialize sanitized request: {}", err)
+                    );
+                    return Err(error.to_response());
+                }
+            };
+    
+            let req_builder = axum::http::Request::builder()
+                .uri(uri)
+                .method(method);
+    
+            let req_builder = headers.iter().fold(req_builder, |builder, (name, value)| {
+                builder.header(name, value)
+            });
+    
+            let request = req_builder
+                .header(CONTENT_TYPE, "application/json")
+                .body(Body::from(sanitized_body))
+                .unwrap();
+    
+            Ok(next.run(request).await)
+        }
 }
 
 // Re-export proto types

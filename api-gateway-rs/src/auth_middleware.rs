@@ -72,10 +72,7 @@ fn extract_token(req: &Request<Body>) -> Option<String> {
 }
 
 /// Main authentication middleware
-pub async fn auth_middleware<B>(req: Request<B>, next: Next<B>) -> Result<Response, impl IntoResponse>
-where
-    B: Send + 'static,
-{
+pub async fn auth_middleware(req: Request<Body>, next: Next) -> Result<Response, impl IntoResponse> {
     // Skip auth for some endpoints
     let path = req.uri().path();
     if path == "/" || path == "/health" {
@@ -140,10 +137,7 @@ where
 }
 
 /// Permission checking middleware - runs after auth_middleware
-pub async fn permission_middleware<B>(req: Request<B>, next: Next<B>) -> Result<Response, impl IntoResponse>
-where
-    B: Send + 'static,
-{
+pub async fn permission_middleware(req: Request<Body>, next: Next) -> Result<Response, impl IntoResponse> {
     // Skip permission check for public endpoints
     let path = req.uri().path();
     if path == "/" || path == "/health" {

@@ -15,11 +15,16 @@ path = "src/main.rs"
 # Core async runtime
 tokio = { version = "1.48.0", features = ["full"] }
 tonic = "0.14.2"
+tonic-prost = "0.14.2"
+prost = "0.14.1"
+prost-types = "0.14.1"
 hyper = { version = "1.5", features = ["full"] }
 
 # Logging and tracing
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+log = "0.4"
+lazy_static = "1.4"
 
 # Web framework and middleware
 axum = "0.7"
@@ -31,7 +36,7 @@ governor = "0.6"
 # Authentication and security
 rustls = "0.21"
 rustls-pemfile = "1.0"
-axum-server = { version = "0.6", features = ["tls-rustls"] }
+axum-server = { version = "0.7", features = ["tls-rustls"] }
 
 # Serialization and validation
 serde = { version = "1.0", features = ["derive"] }
@@ -47,6 +52,10 @@ chrono = { version = "0.4.31", features = ["serde"] }
 
 # Internal dependencies
 config-rs = { path = "../config-rs" }
+
+[build-dependencies]
+tonic-prost-build = "0.14.2"
+protoc-bin-vendored = "3.0"
 
 [dev-dependencies]
 tokio-test = "0.4"

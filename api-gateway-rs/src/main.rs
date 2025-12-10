@@ -18,7 +18,7 @@ use axum::{
     extract::{State, Path},
     http::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE},
     middleware::{self, Next},
-    body::{Body, Bytes},
+    body::{Body, Bytes, to_bytes},
     response::{Response},
     BoxError,
 };
@@ -30,7 +30,8 @@ use once_cell::sync::Lazy;
 use tokio::sync::{RwLock, Mutex};
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::limit::RequestBodyLimitLayer;
-use config_rs::ServiceConfig;
+use config_rs::{get_service_port, get_bind_address, get_client_address};
+use tracing_subscriber::EnvFilter;
 
 // Import our module
 mod validation;
@@ -62,11 +63,6 @@ use std::path::PathBuf;
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
-/// Secrets client for API key management
-static SECRETS_CLIENT: Lazy<Mutex<Option<SecretsClient>>> = Lazy::new(|| {
-    Mutex::new(None)
-});
-
 pub mod agi_core {
     tonic::include_proto!("agi_core");
 }
@@ -83,7 +79,7 @@ pub struct AppState {
     secrets_client: Arc<Mutex<Option<SecretsClient>>>,
 }
 
-/// Execute request body (JSON)
+//// Execute request body (JSON)
 #[derive(Debug, Deserialize)]
 pub struct ExecuteRequest {
     pub id: Option<String>,
@@ -93,14 +89,14 @@ pub struct ExecuteRequest {
     pub metadata: std::collections::HashMap<String, String>,
 }
 
-/// Execute response body (JSON)
+/// Execute response body (JSON) - Using the unified AgiResponse schema
 #[derive(Debug, Serialize)]
 pub struct ExecuteResponse {
-    pub id: String,
-    pub status_code: i32,
-    pub payload: String,
-    pub error: Option<String>,
-    pub metadata: std::collections::HashMap<String, String>,
+    pub final_answer: String,
+    pub execution_plan: String,
+    pub routed_service: String,
+    pub phoenix_session_id: String,
+    pub output_artifact_urls: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -127,54 +123,57 @@ async fn validate_api_key(headers: &HeaderMap, state: &AppState) -> Result<(), (
 
 /// Middleware for validating request content type
 async fn validate_content_type_middleware(
-    headers: HeaderMap,
-    uri: axum::http::Uri,
+    req: axum::http::Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
-    let path = uri.path();
-    
+    let path = req.uri().path().to_string();
+
     // Skip validation for non-API paths
     if !path.starts_with("/api/v1/") {
-        return Ok(next.run().await);
+        return Ok(next.run(req).await);
     }
-    
+
     // Different content-type requirements per path
-    let required_content_type = match path {
+    let required_content_type = match path.as_str() {
         "/api/v1/execute" => "application/json",
-        _ => return Ok(next.run().await), // Skip validation for other paths
+        _ => return Ok(next.run(req).await),
     };
-    
+
     // Validate content type
-    if let Err(err) = validate_content_type(&headers, required_content_type) {
+    if let Err(err) = validate_content_type(req.headers(), required_content_type) {
         let (status, response) = err.to_response();
         return Err((status, response));
     }
-    
-    Ok(next.run().await)
+
+    Ok(next.run(req).await)
 }
 
 /// Middleware for validating and sanitizing request body
 async fn validate_request_middleware(
-    uri: axum::http::Uri,
-    method: axum::http::Method,
-    headers: HeaderMap,
-    body: axum::body::Body,
+    req: axum::http::Request<Body>,
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
-    let path = uri.path();
-    
+    let (parts, body) = req.into_parts();
+    let uri = parts.uri.clone();
+    let method = parts.method.clone();
+    let headers = parts.headers.clone();
+
+    let path = uri.path().to_string();
+
     // Skip validation for non-API paths or non-POST methods
     if !path.starts_with("/api/v1/") || method != axum::http::Method::POST {
-        return Ok(next.run().await);
+        let req = axum::http::Request::from_parts(parts, body);
+        return Ok(next.run(req).await);
     }
-    
+
     // Skip validation for specific endpoints
     if path == "/api/v1/token" || path == "/api/v1/health" {
-        return Ok(next.run().await);
+        let req = axum::http::Request::from_parts(parts, body);
+        return Ok(next.run(req).await);
     }
-    
-    // Collect the full body
-    let body_bytes = match hyper::body::to_bytes(body).await {
+
+    // Collect the full body with a size limit
+    let body_bytes = match to_bytes(body, MAX_PAYLOAD_SIZE).await {
         Ok(bytes) => bytes,
         Err(e) => {
             let error = ApiValidationError::InvalidFormat(
@@ -183,7 +182,7 @@ async fn validate_request_middleware(
             return Err(error.to_response());
         }
     };
-    
+
     // Check request size
     if body_bytes.len() > MAX_PAYLOAD_SIZE {
         let error = ApiValidationError::PayloadTooLarge(
@@ -191,7 +190,7 @@ async fn validate_request_middleware(
         );
         return Err(error.to_response());
     }
-    
+
     // Convert body to UTF-8 string
     let body_str = match std::str::from_utf8(&body_bytes) {
         Ok(s) => s,
@@ -200,23 +199,23 @@ async fn validate_request_middleware(
             return Err(error.to_response());
         }
     };
-    
+
     // Sanitize and parse JSON
     let sanitized_result = sanitize_json_input(body_str);
     if let Err(err) = sanitized_result {
         return Err(err.to_response());
     }
-    
+
     let mut json_value = sanitized_result.unwrap();
-    
+
     // Validate against endpoint schema
-    if let Err(err) = validate_request(path, &json_value) {
+    if let Err(err) = validate_request(&path, &json_value) {
         return Err(err.to_response());
     }
-    
+
     // Sanitize request based on endpoint
-    sanitize_request(path, &mut json_value);
-    
+    sanitize_request(&path, &mut json_value);
+
     // Convert back to string
     let sanitized_body = match serde_json::to_string(&json_value) {
         Ok(body) => body,
@@ -227,22 +226,22 @@ async fn validate_request_middleware(
             return Err(error.to_response());
         }
     };
-    
+
     // Create new request with sanitized body
     let req_builder = axum::http::Request::builder()
         .uri(uri)
         .method(method);
-    
+
     // Copy original headers
-    let mut req_builder = headers.iter().fold(req_builder, |builder, (name, value)| {
+    let req_builder = headers.iter().fold(req_builder, |builder, (name, value)| {
         builder.header(name, value)
     });
-    
+
     let request = req_builder
         .header(CONTENT_TYPE, "application/json")
         .body(Body::from(sanitized_body))
         .unwrap();
-    
+
     // Continue to next middleware or handler
     Ok(next.run(request).await)
 }
@@ -278,15 +277,14 @@ async fn execute_handler(
             match client.process_request(tonic::Request::new(proto_request)).await {
                 Ok(response) => {
                     let inner = response.into_inner();
-                    let is_success = inner.status_code >= 200 && inner.status_code < 300;
                     (
                         StatusCode::OK,
                         Json(ExecuteResponse {
-                            id: inner.id,
-                            status_code: inner.status_code,
-                            payload: String::from_utf8_lossy(&inner.payload).to_string(),
-                            error: if is_success { None } else { Some(inner.error) },
-                            metadata: inner.metadata,
+                            final_answer: inner.final_answer,
+                            execution_plan: inner.execution_plan,
+                            routed_service: inner.routed_service,
+                            phoenix_session_id: inner.phoenix_session_id,
+                            output_artifact_urls: inner.output_artifact_urls,
                         }),
                     ).into_response()
                 }
@@ -461,11 +459,10 @@ jQLqGqv8/F7hQJKGjN3gw1zOyA8p
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Load .env file
-    dotenv::dotenv().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
 
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    
     let _ = *START_TIME;
     
     // Load Phoenix API keys from file
@@ -477,9 +474,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     // Use standardized configuration for ports and addresses
-    let service_config = ServiceConfig::new("api-gateway");
-    let port = service_config.get_service_port(8000);
-    let orchestrator_addr = service_config.get_client_address("orchestrator", 50051);
+    let port = get_service_port("API_GATEWAY", 8000);
+    let addr = get_bind_address("API_GATEWAY", 8000);
+    let orchestrator_addr = get_client_address("ORCHESTRATOR", 50051, None);
     
     log::info!("Using API Gateway port: {}", port);
     log::info!("Using Orchestrator address: {}", orchestrator_addr);
@@ -499,11 +496,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
     
-    // Initialize global secrets client for other functions to use
-    {
-        let mut global_client = SECRETS_CLIENT.lock().await;
-        *global_client = secrets_client.clone();
-    }
     
     // Try to get the default API key from secrets service
     if let Some(client) = &secrets_client {
@@ -528,35 +520,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let limit_layer = payload_limit_config();
     
     // Initialize auth client
-    // Use standardized configuration for auth service address
-    let auth_service_addr = service_config.get_client_address("auth-service", 50090);
-    log::info!("Using Auth Service address: {}", auth_service_addr);
-        
-    let service_id = env::var("SERVICE_ID")
-        .unwrap_or_else(|_| "api-gateway".to_string());
-        
-    let client_id = env::var("CLIENT_ID")
-        .unwrap_or_else(|_| "api-gateway-client".to_string());
-        
-    let client_secret = env::var("CLIENT_SECRET")
-        .unwrap_or_else(|_| "default-client-secret".to_string());
-        
-    let use_mtls = env::var("USE_MTLS")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse::<bool>()
-        .unwrap_or(false);
-        
-    // Initialize auth client
-    match init_auth_client(
-        &auth_service_addr,
-        &service_id,
-        &client_id,
-        &client_secret,
-        use_mtls,
-        None, // cert_path
-        None, // key_path
-        None, // ca_path
-    ).await {
+    match init_auth_client().await {
         Ok(_) => {
             log::info!("Successfully initialized auth client");
         }
@@ -585,9 +549,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors)
         .with_state(state);
     
-    // Use standardized bind address function
-    let addr = service_config.get_bind_address(port);
-    
     // Load TLS configuration
     match load_tls_config().await? {
         Some(tls_config) => {
@@ -595,7 +556,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             log::info!("API Gateway starting with TLS on https://{}", addr);
             println!("API Gateway listening on https://{} (TLS enabled)", addr);
             
-            axum_server::bind_rustls(addr.parse()?, tls_config)
+            axum_server::bind_rustls(addr, tls_config)
                 .serve(app.into_make_service())
                 .await?;
         }

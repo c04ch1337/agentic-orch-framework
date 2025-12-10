@@ -3,13 +3,13 @@
 // Port 50067
 
 use tonic::{transport::Server, Request, Response, Status};
-use tonic_health::proto::health_client::HealthClient;
-use tonic_health::proto::HealthCheckRequest;
+use tonic_health::pb::health_client::HealthClient;
+use tonic_health::pb::HealthCheckRequest;
 use std::sync::Arc;
 use std::time::Instant;
 use std::net::SocketAddr;
 use std::env;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use once_cell::sync::Lazy;
 use tokio::sync::RwLock;
@@ -30,7 +30,8 @@ use agi_core::{
     GetAgentResponse,
     ListAgentsRequest,
     ListAgentsResponse,
-    AgentInfo,
+    GetAvailableCapabilitiesRequest,
+    GetAvailableCapabilitiesResponse,
     HealthRequest,
     HealthResponse,
 };
@@ -51,7 +52,7 @@ struct AgentDefinition {
 
 /// Internal agent entry with runtime status
 #[derive(Debug, Clone)]
-struct AgentEntry {
+pub struct AgentEntry {
     agent_id: String,
     name: String,
     port: i32,
@@ -259,7 +260,7 @@ impl AgentRegistryService for AgentRegistryServer {
                             .collect();
                     }
                     
-                    metadata.insert(cap.clone(), CapabilityMetadata {
+                    metadata.insert(cap.clone(), agi_core::CapabilityMetadata {
                         description: meta.clone(),
                         required_params,
                         provider_agent: agent.name.clone(),
@@ -332,7 +333,7 @@ impl AgentRegistryService for AgentRegistryServer {
                 if entry.verified {
                     return Ok(Response::new(GetAgentResponse {
                         found: true,
-                        agent: Some(AgentInfo {
+                        agent: Some(agi_core::AgentInfo {
                             agent_id: entry.agent_id.clone(),
                             name: entry.name.clone(),
                             port: entry.port,
@@ -355,7 +356,7 @@ impl AgentRegistryService for AgentRegistryServer {
                 if entry.verified && entry.capabilities.contains(&req.capability) {
                     return Ok(Response::new(GetAgentResponse {
                         found: true,
-                        agent: Some(AgentInfo {
+                        agent: Some(agi_core::AgentInfo {
                             agent_id: entry.agent_id.clone(),
                             name: entry.name.clone(),
                             port: entry.port,
@@ -382,7 +383,7 @@ impl AgentRegistryService for AgentRegistryServer {
         let req = request.into_inner();
         let agents = self.agents.read().await;
         
-        let result: Vec<AgentInfo> = agents
+        let result: Vec<agi_core::AgentInfo> = agents
             .values()
             .filter(|a| {
                 // Only verified agents should be returned
@@ -404,7 +405,7 @@ impl AgentRegistryService for AgentRegistryServer {
                 }
                 true
             })
-            .map(|a| AgentInfo {
+            .map(|a| agi_core::AgentInfo {
                 agent_id: a.agent_id.clone(),
                 name: a.name.clone(),
                 port: a.port,
@@ -423,107 +424,109 @@ impl AgentRegistryService for AgentRegistryServer {
         }))
     }
     
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use tonic::Request;
-    
-        #[tokio::test]
-        async fn test_get_available_capabilities() {
-            let service = AgentRegistryServer::default();
-            
-            // Add a verified agent with capabilities and metadata
-            let verified_agent = AgentEntry {
-                agent_id: "test1".to_string(),
-                name: "test_agent1".to_string(),
-                port: 8001,
-                role: "worker".to_string(),
-                capabilities: vec!["cap1".to_string(), "cap2".to_string()],
-                status: "ONLINE".to_string(),
-                metadata: {
-                    let mut map = HashMap::new();
-                    map.insert("cap1".to_string(), "Description for cap1".to_string());
-                    map.insert("cap1_params".to_string(), "param1,param2".to_string());
-                    map.insert("cap2".to_string(), "Description for cap2".to_string());
-                    map
-                },
-                verified: true,
-            };
-            
-            // Add an unverified agent - its capabilities should not appear
-            let unverified_agent = AgentEntry {
-                agent_id: "test2".to_string(),
-                name: "test_agent2".to_string(),
-                port: 8002,
-                role: "worker".to_string(),
-                capabilities: vec!["cap3".to_string()],
-                status: "ONLINE".to_string(),
-                metadata: HashMap::new(),
-                verified: false,
-            };
-            
-            // Insert test agents
-            {
-                let mut agents = service.agents.write().await;
-                agents.insert(verified_agent.name.clone(), verified_agent);
-                agents.insert(unverified_agent.name.clone(), unverified_agent);
-            }
-            
-            // Test the GetAvailableCapabilities RPC
-            let request = Request::new(GetAvailableCapabilitiesRequest {});
-            let response = service.get_available_capabilities(request).await.unwrap();
-            let result = response.into_inner();
-            
-            // Verify capabilities list
-            let capabilities: HashSet<String> = result.capabilities.into_iter().collect();
-            assert_eq!(capabilities.len(), 2);
-            assert!(capabilities.contains("cap1"));
-            assert!(capabilities.contains("cap2"));
-            assert!(!capabilities.contains("cap3")); // Unverified agent's capability
-            
-            // Verify metadata
-            assert_eq!(result.metadata.len(), 2);
-            
-            // Check cap1 metadata
-            let cap1_meta = result.metadata.get("cap1").expect("cap1 metadata missing");
-            assert_eq!(cap1_meta.description, "Description for cap1");
-            assert_eq!(cap1_meta.required_params, vec!["param1", "param2"]);
-            assert_eq!(cap1_meta.provider_agent, "test_agent1");
-            
-            // Check cap2 metadata
-            let cap2_meta = result.metadata.get("cap2").expect("cap2 metadata missing");
-            assert_eq!(cap2_meta.description, "Description for cap2");
-            assert!(cap2_meta.required_params.is_empty());
-            assert_eq!(cap2_meta.provider_agent, "test_agent1");
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tonic::Request;
+
+    #[tokio::test]
+    async fn test_get_available_capabilities() {
+        let service = AgentRegistryServer::default();
+        
+        // Add a verified agent with capabilities and metadata
+        let verified_agent = AgentEntry {
+            agent_id: "test1".to_string(),
+            name: "test_agent1".to_string(),
+            port: 8001,
+            role: "worker".to_string(),
+            capabilities: vec!["cap1".to_string(), "cap2".to_string()],
+            status: "ONLINE".to_string(),
+            metadata: {
+                let mut map = HashMap::new();
+                map.insert("cap1".to_string(), "Description for cap1".to_string());
+                map.insert("cap1_params".to_string(), "param1,param2".to_string());
+                map.insert("cap2".to_string(), "Description for cap2".to_string());
+                map
+            },
+            verified: true,
+        };
+        
+        // Add an unverified agent - its capabilities should not appear
+        let unverified_agent = AgentEntry {
+            agent_id: "test2".to_string(),
+            name: "test_agent2".to_string(),
+            port: 8002,
+            role: "worker".to_string(),
+            capabilities: vec!["cap3".to_string()],
+            status: "ONLINE".to_string(),
+            metadata: HashMap::new(),
+            verified: false,
+        };
+        
+        // Insert test agents
+        {
+            let mut agents = service.agents.write().await;
+            agents.insert(verified_agent.name.clone(), verified_agent);
+            agents.insert(unverified_agent.name.clone(), unverified_agent);
         }
-    
-        #[tokio::test]
-        async fn test_get_available_capabilities_empty_registry() {
-            let service = AgentRegistryServer::default();
-            let request = Request::new(GetAvailableCapabilitiesRequest {});
-            let response = service.get_available_capabilities(request).await.unwrap();
-            let result = response.into_inner();
-            
-            assert!(result.capabilities.is_empty());
-            assert!(result.metadata.is_empty());
-        }
-    
-        #[tokio::test]
-        async fn test_get_available_capabilities_timeout() {
-            let service = AgentRegistryServer::default();
-            
-            // Simulate a slow lock by holding write lock
-            let _write_lock = service.agents.write().await;
-            
-            // Try to get capabilities (should timeout)
-            let request = Request::new(GetAvailableCapabilitiesRequest {});
-            let result = service.get_available_capabilities(request).await;
-            
-            assert!(result.is_err());
-            if let Err(status) = result {
-                assert_eq!(status.code(), tonic::Code::Internal);
-                assert!(status.message().contains("Failed to access agent registry"));
-            }
+        
+        // Test the GetAvailableCapabilities RPC
+        let request = Request::new(GetAvailableCapabilitiesRequest {});
+        let response = service.get_available_capabilities(request).await.unwrap();
+        let result = response.into_inner();
+        
+        // Verify capabilities list
+        let capabilities: HashSet<String> = result.capabilities.into_iter().collect();
+        assert_eq!(capabilities.len(), 2);
+        assert!(capabilities.contains("cap1"));
+        assert!(capabilities.contains("cap2"));
+        assert!(!capabilities.contains("cap3")); // Unverified agent's capability
+        
+        // Verify metadata
+        assert_eq!(result.metadata.len(), 2);
+        
+        // Check cap1 metadata
+        let cap1_meta = result.metadata.get("cap1").expect("cap1 metadata missing");
+        assert_eq!(cap1_meta.description, "Description for cap1");
+        assert_eq!(cap1_meta.required_params, vec!["param1", "param2"]);
+        assert_eq!(cap1_meta.provider_agent, "test_agent1");
+        
+        // Check cap2 metadata
+        let cap2_meta = result.metadata.get("cap2").expect("cap2 metadata missing");
+        assert_eq!(cap2_meta.description, "Description for cap2");
+        assert!(cap2_meta.required_params.is_empty());
+        assert_eq!(cap2_meta.provider_agent, "test_agent1");
+    }
+
+    #[tokio::test]
+    async fn test_get_available_capabilities_empty_registry() {
+        let service = AgentRegistryServer::default();
+        let request = Request::new(GetAvailableCapabilitiesRequest {});
+        let response = service.get_available_capabilities(request).await.unwrap();
+        let result = response.into_inner();
+        
+        assert!(result.capabilities.is_empty());
+        assert!(result.metadata.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_available_capabilities_timeout() {
+        let service = AgentRegistryServer::default();
+        
+        // Simulate a slow lock by holding write lock
+        let _write_lock = service.agents.write().await;
+        
+        // Try to get capabilities (should timeout)
+        let request = Request::new(GetAvailableCapabilitiesRequest {});
+        let result = service.get_available_capabilities(request).await;
+        
+        assert!(result.is_err());
+        if let Err(status) = result {
+            assert_eq!(status.code(), tonic::Code::Internal);
+            assert!(status.message().contains("Failed to access agent registry"));
         }
     }
 }

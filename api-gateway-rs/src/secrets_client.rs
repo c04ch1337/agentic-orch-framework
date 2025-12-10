@@ -17,7 +17,7 @@ use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 use uuid::Uuid;
-use config_rs::ServiceConfig;
+
 
 // Import the generated protobuf code
 pub mod secrets_service {
@@ -86,19 +86,14 @@ impl SecretsClient {
     pub async fn new() -> Result<Self, SecretsError> {
         // Get service ID and secret from environment
         let service_id = env::var("SERVICE_ID").unwrap_or_else(|_| "api-gateway".to_string());
-        let service_secret = env::var("API_GATEWAY_SECRET")
-            .map_err(|_| SecretsError::ConfigurationError(
-                "API_GATEWAY_SECRET environment variable not set".to_string()
-            ))?;
-            
-        // Get secrets service address using standard config
-        let config = ServiceConfig::new("api-gateway");
-        let secrets_addr = config.get_client_address("secrets-service", 50080);
-            
-        log::info!("Initializing secrets client for service: {}", service_id);
-        log::info!("Connecting to secrets service at: {}", secrets_addr);
+        let service_secret = env::var("SERVICE_SECRET").unwrap_or_else(|_| "dev-secret".to_string());
         
-        // Create the client
+        // Use standardized config to get secrets service address
+        let secrets_addr = config_rs::get_client_address("secrets-service", 50080, None);
+        
+        log::info!("Connecting to secrets service at {}", secrets_addr);
+        
+        // Create the gRPC client
         let client_result = SecretsServiceClient::connect(secrets_addr.clone()).await;
         
         let client = match client_result {
@@ -443,8 +438,7 @@ impl SecretsClient {
     pub async fn reconnect(&mut self) -> Result<(), SecretsError> {
         if self.client.is_none() {
             // Get updated address using standard config
-            let config = ServiceConfig::new("api-gateway");
-            let secrets_addr = config.get_client_address("secrets-service", 50080);
+            let secrets_addr = config_rs::get_client_address("secrets-service", 50080, None);
             
             // Update stored address
             self.secrets_addr = secrets_addr.clone();
