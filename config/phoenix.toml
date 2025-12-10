@@ -85,8 +85,7 @@ curiosity_engine = 50070
 # Scheduling and agents
 scheduler = 50066
 agent_registry = 50067
-red_team = 50068
-blue_team = 50069
+# RED TEAM and BLUE TEAM have been decoupled - no longer part of core services
 
 # API Gateway
 api_gateway = 8282
@@ -249,17 +248,18 @@ max_request_size_bytes = 1048576  # 1 MB
 rate_limit_requests_per_minute = 60
 
 # ============================================================================
-# EXECUTOR CONFIGURATION
+# EXECUTOR CONFIGURATION (Emergency Kill Switch)
 # ============================================================================
 [executor]
 # Enable Windows Job Objects for process isolation
 enable_job_objects = true
 
-# Resource limits
-max_cpu_percent = 50
-max_memory_mb = 512
-max_processes = 10
-max_execution_time_secs = 300
+# Resource limits for Windows Job Object / Process Watchdog
+# These are the direct inputs for bare-minimum resilience
+max_cpu_percent = 50          # u8: CPU limit percentage (0-100)
+max_memory_mb = 512            # u32: Maximum memory in megabytes
+max_processes = 10             # u32: Maximum number of processes
+max_execution_time_secs = 300  # u64: Maximum execution time in seconds
 
 # Python execution
 python_executable = "python"
@@ -279,9 +279,7 @@ allowed_shell_commands = [
 [context_manager.prompts]
 master = """You are PHOENIX ORCH: The Ashen Guard Edition, a highly capable AI assistant focused on safety, accuracy, and helpfulness."""
 
-red_team = """You are the RED TEAM SHADOW agent, an ethical adversary focused on vulnerability scanning and attack simulation."""
-
-blue_team = """You are the BLUE TEAM SENTINEL agent, an autonomous defense system focused on threat containment and system hardening."""
+# RED TEAM and BLUE TEAM prompts removed - agents have been decoupled from core system
 
 # ============================================================================
 # REFLECTION SERVICE CONFIGURATION
@@ -308,6 +306,36 @@ max_concurrent_tasks = 10
 
 # Task timeout in seconds
 task_timeout_secs = 3600
+
+# ============================================================================
+# AGENT REGISTRY CONFIGURATION
+# ============================================================================
+[agent_registry]
+# Core services registered for runtime health checks
+# Only essential services are included - RED TEAM and BLUE TEAM have been decoupled
+[[agent_registry.agents]]
+name = "tools-service"
+endpoint = "http://localhost:50054"
+capabilities = ["web_search", "calculator", "file_operations"]
+health_check_enabled = true
+
+[[agent_registry.agents]]
+name = "executor-service"
+endpoint = "http://localhost:50062"
+capabilities = ["code_execution", "shell_commands", "python_sandbox"]
+health_check_enabled = true
+
+[[agent_registry.agents]]
+name = "llm-service"
+endpoint = "http://localhost:50053"
+capabilities = ["text_generation", "completion", "chat"]
+health_check_enabled = true
+
+# Health check interval for all registered agents (seconds)
+health_check_interval_secs = 60
+
+# Timeout for health check requests (seconds)
+health_check_timeout_secs = 5
 
 # ============================================================================
 # API GATEWAY CONFIGURATION
@@ -337,6 +365,14 @@ max_request_body_size_bytes = 10485760  # 10 MB
 
 # API keys file path
 api_keys_file = "./config/phoenix_api_keys.txt"
+
+# API Gateway Rate Limiting (Cost Cap)
+[api_gateway.rate_limiting]
+# Maximum requests per minute per API key
+max_requests_per_minute = 100  # u32: Per-key rate limit
+
+# API key status check endpoint for dynamic validation
+api_key_status_check_endpoint = "http://localhost:50090/api/v1/keys/status"
 
 # ============================================================================
 # AUTH SERVICE CONFIGURATION
