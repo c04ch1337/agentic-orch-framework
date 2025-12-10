@@ -28,7 +28,7 @@ pathdiff = "0.2"
 regex-automata = "0.3"
 
 # Glob pattern matching
-glob_match = "0.2"
+glob-match = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1.28", features = ["full"] }
