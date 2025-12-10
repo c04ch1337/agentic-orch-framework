@@ -1,0 +1,40 @@
+# Multi-stage Dockerfile for body-kb-rs
+# Stage 1: Build
+FROM rust:1.75 as builder
+
+# Install protoc (Protocol Buffers compiler)
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY .proto ./.proto/
+COPY body-kb-rs ./body-kb-rs/
+
+# Build the service
+WORKDIR /app/body-kb-rs
+RUN cargo build --release
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary from builder
+COPY --from=builder /app/body-kb-rs/target/release/body-kb-rs /app/body-kb-rs
+
+# Copy proto files for runtime reference
+COPY --from=builder /app/.proto ./.proto/
+
+EXPOSE 50058
+
+CMD ["./body-kb-rs"]
+

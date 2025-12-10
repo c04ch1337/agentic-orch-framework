@@ -1,0 +1,17 @@
+[package]
+name = "data-router-rs"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "data_router"
+path = "src/lib.rs"
+
+[dependencies]
+log = "0.4.29"
+tokio = { version = "1.48.0", features = ["full", "sync"] }
+once_cell = "1.20"
+whatlang = "0.16"
+error-handling-rs = { path = "../error-handling-rs" }
+metrics = "0.20"
+config-rs = { path = "../config-rs" }

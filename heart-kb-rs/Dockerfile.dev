@@ -1,0 +1,40 @@
+# Multi-stage Dockerfile for heart-kb-rs
+# Stage 1: Build
+FROM rust:1.75 as builder
+
+# Install protoc (Protocol Buffers compiler)
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY .proto ./.proto/
+COPY heart-kb-rs ./heart-kb-rs/
+
+# Build the service
+WORKDIR /app/heart-kb-rs
+RUN cargo build --release
+
+# Stage 2: Runtime
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy the binary from builder
+COPY --from=builder /app/heart-kb-rs/target/release/heart-kb-rs /app/heart-kb-rs
+
+# Copy proto files for runtime reference
+COPY --from=builder /app/.proto ./.proto/
+
+EXPOSE 50059
+
+CMD ["./heart-kb-rs"]
+
