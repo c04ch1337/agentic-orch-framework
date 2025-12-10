@@ -8,6 +8,10 @@ description = "Authentication and Authorization Library for Phoenix ORCH AGI"
 name = "auth_service"
 path = "src/lib.rs"
 
+[[bin]]
+name = "auth-service"
+path = "src/main.rs"
+
 [dependencies]
 # Core runtime
 tokio = { version = "1.32.0", features = ["full"] }
