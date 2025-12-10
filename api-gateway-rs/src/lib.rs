@@ -46,14 +46,14 @@ pub struct ExecuteRequest {
     pub metadata: HashMap<String, String>,
 }
 
-/// Execute response body (JSON)
+/// Execute response body (JSON) - Using the unified AgiResponse schema
 #[derive(Debug, Serialize)]
 pub struct ExecuteResponse {
-    pub id: String,
-    pub status_code: i32,
-    pub payload: String,
-    pub error: Option<String>,
-    pub metadata: HashMap<String, String>,
+    pub final_answer: String,
+    pub execution_plan: String,
+    pub routed_service: String,
+    pub phoenix_session_id: String,
+    pub output_artifact_urls: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -207,16 +207,23 @@ impl ApiGateway {
                 let mut client = agi_core::orchestrator_service_client::OrchestratorServiceClient::new(channel);
                 match client.process_request(tonic::Request::new(proto_request)).await {
                     Ok(response) => {
-                        let inner = response.into_inner();
-                        let is_success = inner.status_code >= 200 && inner.status_code < 300;
+                        let agi_response = response.into_inner();
+                        
+                        // Transform into unified AgiResponse format
                         (
                             StatusCode::OK,
                             Json(ExecuteResponse {
-                                id: inner.id,
-                                status_code: inner.status_code,
-                                payload: String::from_utf8_lossy(&inner.payload).to_string(),
-                                error: if is_success { None } else { Some(inner.error) },
-                                metadata: inner.metadata,
+                                final_answer: String::from_utf8_lossy(&agi_response.payload).to_string(),
+                                execution_plan: agi_response.metadata.get("execution_plan")
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                routed_service: agi_response.metadata.get("routed_service")
+                                    .cloned()
+                                    .unwrap_or_default(),
+                                phoenix_session_id: agi_response.id,
+                                output_artifact_urls: agi_response.metadata.get("output_artifacts")
+                                    .map(|urls| urls.split(',').map(String::from).collect())
+                                    .unwrap_or_default(),
                             }),
                         ).into_response()
                     }

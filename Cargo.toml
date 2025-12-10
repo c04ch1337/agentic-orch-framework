@@ -14,7 +14,6 @@ members = [
     "social-kb-rs",
     "soul-kb-rs",
     "sensor-rs",
-    "executor-rs",
     "context-manager-rs",
     "reflection-rs",
     "scheduler-rs",
@@ -35,3 +34,6 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
+
+# Set workspace resolver to 3 as recommended
+resolver = "3"
