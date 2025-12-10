@@ -269,6 +269,7 @@ jobs:
     name: Advanced Code Security Scanning
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'schedule' || github.event.inputs.scan_scope == 'full' || github.event.inputs.scan_scope == 'code' }}
+    environment: production
     permissions:
       security-events: write
       
@@ -337,6 +338,7 @@ jobs:
     name: Enhanced Secret Scanning
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'schedule' || github.event.inputs.scan_scope == 'full' || github.event.inputs.scan_scope == 'secrets' }}
+    environment: production
     
     steps:
       - name: Checkout code
@@ -409,6 +411,7 @@ jobs:
     needs: [advanced-dependency-scan, enhanced-container-scanning, advanced-code-scanning, enhanced-secret-scanning]
     runs-on: ubuntu-latest
     if: always()
+    environment: production
     
     steps:
       - name: Checkout code

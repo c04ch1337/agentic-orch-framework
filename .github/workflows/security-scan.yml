@@ -234,6 +234,7 @@ jobs:
     needs: [dependency-scan, container-scanning, code-scanning, dependency-updates, secret-scanning]
     runs-on: ubuntu-latest
     if: always()
+    environment: production
     
     steps:
       - name: Generate security report

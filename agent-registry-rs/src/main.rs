@@ -3,6 +3,8 @@
 // Port 50067
 
 use tonic::{transport::Server, Request, Response, Status};
+use tonic_health::proto::health_client::HealthClient;
+use tonic_health::proto::HealthCheckRequest;
 use std::sync::Arc;
 use std::time::Instant;
 use std::net::SocketAddr;
@@ -57,6 +59,7 @@ struct AgentEntry {
     capabilities: Vec<String>,
     status: String,
     metadata: HashMap<String, String>,
+    verified: bool,  // Track whether agent health has been verified
 }
 
 #[derive(Debug)]
@@ -73,8 +76,46 @@ impl Default for AgentRegistryServer {
 }
 
 impl AgentRegistryServer {
-    /// Load agents from config/agent_registry.toml
-    pub async fn load_from_config(&self) -> Result<(), Box<dyn std::error::Error>> {
+    /// Verify the health of an agent using the gRPC Health Checking Protocol
+    /// Returns true if the agent is healthy (status is SERVING), false otherwise
+    async fn verify_agent_health(
+        &self,
+        endpoint: &str,
+        service_name: &str,
+        timeout_seconds: u64
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        // Create health client with timeout
+        let timeout = std::time::Duration::from_secs(timeout_seconds);
+        let channel = tonic::transport::Channel::from_shared(format!("http://{}", endpoint))?
+            .timeout(timeout)
+            .connect()
+            .await?;
+        
+        let mut client = HealthClient::new(channel);
+        
+        // Make health check request
+        let request = tonic::Request::new(
+            HealthCheckRequest {
+                service: service_name.to_string(),
+            }
+        );
+        
+        // Check status
+        match client.check(request).await {
+            Ok(response) => {
+                let status = response.into_inner().status;
+                // Health check response status 1 = SERVING
+                Ok(status == 1)
+            },
+            Err(e) => {
+                log::warn!("Health check failed for {}: {}", endpoint, e);
+                Ok(false)
+            }
+        }
+    }
+
+    /// Load agents from config/agent_registry.toml without verification
+    pub async fn load_agents_from_config(&self) -> Vec<AgentEntry> {
         let config_path = env::var("AGENT_REGISTRY_CONFIG")
             .unwrap_or_else(|_| "../config/agent_registry.toml".to_string());
         
@@ -82,13 +123,26 @@ impl AgentRegistryServer {
         
         if !path.exists() {
             log::warn!("Agent config file not found at {}, starting with empty registry", config_path);
-            return Ok(());
+            return Vec::new();
         }
         
-        let content = tokio::fs::read_to_string(path).await?;
-        let config: AgentConfig = toml::from_str(&content)?;
+        let content = match tokio::fs::read_to_string(path).await {
+            Ok(content) => content,
+            Err(e) => {
+                log::error!("Failed to read config file: {}", e);
+                return Vec::new();
+            }
+        };
         
-        let mut agents = self.agents.write().await;
+        let config: AgentConfig = match toml::from_str(&content) {
+            Ok(config) => config,
+            Err(e) => {
+                log::error!("Failed to parse config file: {}", e);
+                return Vec::new();
+            }
+        };
+        
+        let mut agents = Vec::new();
         
         for def in config.agent {
             let agent_id = uuid::Uuid::new_v4().to_string();
@@ -102,18 +156,135 @@ impl AgentRegistryServer {
                 capabilities: def.capabilities,
                 status: "OFFLINE".to_string(), // Start as offline until health check
                 metadata: HashMap::new(),
+                verified: false, // Start as unverified
             };
             
-            agents.insert(def.name, entry);
+            agents.push(entry);
         }
         
         log::info!("Loaded {} agents from config", agents.len());
+        agents
+    }
+
+    /// Load agents from config and verify their health
+    pub async fn load_and_verify_agents(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Load from config
+        let agents = self.load_agents_from_config().await;
+        
+        if agents.is_empty() {
+            log::warn!("No agents loaded from configuration");
+            return Ok(());
+        }
+        
+        let mut verified_count = 0;
+        let mut unverified_count = 0;
+        let mut verified_agents = self.agents.write().await;
+        
+        for agent in agents {
+            let endpoint = format!("localhost:{}", agent.port);
+            
+            // Perform health check verification
+            match self.verify_agent_health(&endpoint, &agent.name, 5).await {
+                Ok(true) => {
+                    // Agent is healthy and verified
+                    let mut verified_agent = agent.clone();
+                    verified_agent.status = "ONLINE".to_string();
+                    verified_agent.verified = true;
+                    verified_agents.insert(agent.name.clone(), verified_agent);
+                    log::info!("Agent {} verified and marked as ONLINE", agent.name);
+                    verified_count += 1;
+                },
+                _ => {
+                    // Store in registry but marked as unverified
+                    let unverified_agent = agent.clone();
+                    verified_agents.insert(agent.name.clone(), unverified_agent);
+                    log::warn!("Agent {} failed health verification, marked as unverified", agent.name);
+                    unverified_count += 1;
+                }
+            }
+        }
+        
+        log::info!("Agent verification complete: {} verified, {} unverified",
+                  verified_count, unverified_count);
+        
         Ok(())
     }
 }
 
 #[tonic::async_trait]
 impl AgentRegistryService for AgentRegistryServer {
+    async fn get_available_capabilities(
+        &self,
+        request: Request<GetAvailableCapabilitiesRequest>,
+    ) -> Result<Response<GetAvailableCapabilitiesResponse>, Status> {
+        log::debug!("GetAvailableCapabilities request received from {:?}",
+                   request.remote_addr());
+
+        let mut capabilities = HashSet::new();
+        let mut metadata = HashMap::new();
+        
+        // Get all agents with timeout protection
+        let agents = match tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            self.agents.read()
+        ).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                log::error!("Timeout while acquiring agents read lock");
+                return Err(Status::internal("Failed to access agent registry"));
+            }
+        };
+
+        let verified_count = agents.values().filter(|a| a.verified).count();
+        log::debug!("Processing {} verified agents", verified_count);
+        
+        // Only include capabilities from verified agents
+        for agent in agents.values() {
+            if !agent.verified {
+                log::trace!("Skipping unverified agent: {}", agent.name);
+                continue;
+            }
+
+            log::trace!("Processing capabilities for agent: {}", agent.name);
+            for cap in &agent.capabilities {
+                capabilities.insert(cap.clone());
+                
+                // Add metadata if available
+                if let Some(meta) = agent.metadata.get(cap) {
+                    let mut required_params = Vec::new();
+                    if let Some(params) = agent.metadata.get(&format!("{}_params", cap)) {
+                        required_params = params.split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                    }
+                    
+                    metadata.insert(cap.clone(), CapabilityMetadata {
+                        description: meta.clone(),
+                        required_params,
+                        provider_agent: agent.name.clone(),
+                    });
+                    log::trace!("Added metadata for capability: {}", cap);
+                }
+            }
+        }
+        
+        let total_capabilities = capabilities.len();
+        let total_with_metadata = metadata.len();
+        
+        log::info!("GetAvailableCapabilities: found {} capabilities ({} with metadata) from {} verified agents",
+                  total_capabilities, total_with_metadata, verified_count);
+        
+        if total_capabilities == 0 {
+            log::warn!("No capabilities found from verified agents");
+        }
+        
+        Ok(Response::new(GetAvailableCapabilitiesResponse {
+            capabilities: capabilities.into_iter().collect(),
+            metadata,
+        }))
+    }
+
     async fn register_agent(
         &self,
         request: Request<RegisterAgentRequest>,
@@ -132,6 +303,7 @@ impl AgentRegistryService for AgentRegistryServer {
             capabilities: req.capabilities,
             status: "ONLINE".to_string(),
             metadata: req.metadata,
+            verified: true,  // Directly registered agents are considered verified
         };
         
         let mut agents = self.agents.write().await;
@@ -156,25 +328,31 @@ impl AgentRegistryService for AgentRegistryServer {
         // Lookup by name first
         if !req.name.is_empty() {
             if let Some(entry) = agents.get(&req.name) {
-                return Ok(Response::new(GetAgentResponse {
-                    found: true,
-                    agent: Some(AgentInfo {
-                        agent_id: entry.agent_id.clone(),
-                        name: entry.name.clone(),
-                        port: entry.port,
-                        role: entry.role.clone(),
-                        capabilities: entry.capabilities.clone(),
-                        status: entry.status.clone(),
-                        metadata: entry.metadata.clone(),
-                    }),
-                }));
+                // Only return verified agents
+                if entry.verified {
+                    return Ok(Response::new(GetAgentResponse {
+                        found: true,
+                        agent: Some(AgentInfo {
+                            agent_id: entry.agent_id.clone(),
+                            name: entry.name.clone(),
+                            port: entry.port,
+                            role: entry.role.clone(),
+                            capabilities: entry.capabilities.clone(),
+                            status: entry.status.clone(),
+                            metadata: entry.metadata.clone(),
+                        }),
+                    }));
+                } else {
+                    log::debug!("Agent {} found but not verified", req.name);
+                }
             }
         }
         
         // Lookup by capability
         if !req.capability.is_empty() {
             for entry in agents.values() {
-                if entry.capabilities.contains(&req.capability) {
+                // Only consider verified agents
+                if entry.verified && entry.capabilities.contains(&req.capability) {
                     return Ok(Response::new(GetAgentResponse {
                         found: true,
                         agent: Some(AgentInfo {
@@ -207,6 +385,11 @@ impl AgentRegistryService for AgentRegistryServer {
         let result: Vec<AgentInfo> = agents
             .values()
             .filter(|a| {
+                // Only verified agents should be returned
+                if !a.verified {
+                    return false;
+                }
+                
                 // Apply capability filter
                 if !req.capability_filter.is_empty() {
                     if !a.capabilities.contains(&req.capability_filter) {
@@ -238,6 +421,110 @@ impl AgentRegistryService for AgentRegistryServer {
             agents: result,
             total_count: total,
         }))
+    }
+    
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use tonic::Request;
+    
+        #[tokio::test]
+        async fn test_get_available_capabilities() {
+            let service = AgentRegistryServer::default();
+            
+            // Add a verified agent with capabilities and metadata
+            let verified_agent = AgentEntry {
+                agent_id: "test1".to_string(),
+                name: "test_agent1".to_string(),
+                port: 8001,
+                role: "worker".to_string(),
+                capabilities: vec!["cap1".to_string(), "cap2".to_string()],
+                status: "ONLINE".to_string(),
+                metadata: {
+                    let mut map = HashMap::new();
+                    map.insert("cap1".to_string(), "Description for cap1".to_string());
+                    map.insert("cap1_params".to_string(), "param1,param2".to_string());
+                    map.insert("cap2".to_string(), "Description for cap2".to_string());
+                    map
+                },
+                verified: true,
+            };
+            
+            // Add an unverified agent - its capabilities should not appear
+            let unverified_agent = AgentEntry {
+                agent_id: "test2".to_string(),
+                name: "test_agent2".to_string(),
+                port: 8002,
+                role: "worker".to_string(),
+                capabilities: vec!["cap3".to_string()],
+                status: "ONLINE".to_string(),
+                metadata: HashMap::new(),
+                verified: false,
+            };
+            
+            // Insert test agents
+            {
+                let mut agents = service.agents.write().await;
+                agents.insert(verified_agent.name.clone(), verified_agent);
+                agents.insert(unverified_agent.name.clone(), unverified_agent);
+            }
+            
+            // Test the GetAvailableCapabilities RPC
+            let request = Request::new(GetAvailableCapabilitiesRequest {});
+            let response = service.get_available_capabilities(request).await.unwrap();
+            let result = response.into_inner();
+            
+            // Verify capabilities list
+            let capabilities: HashSet<String> = result.capabilities.into_iter().collect();
+            assert_eq!(capabilities.len(), 2);
+            assert!(capabilities.contains("cap1"));
+            assert!(capabilities.contains("cap2"));
+            assert!(!capabilities.contains("cap3")); // Unverified agent's capability
+            
+            // Verify metadata
+            assert_eq!(result.metadata.len(), 2);
+            
+            // Check cap1 metadata
+            let cap1_meta = result.metadata.get("cap1").expect("cap1 metadata missing");
+            assert_eq!(cap1_meta.description, "Description for cap1");
+            assert_eq!(cap1_meta.required_params, vec!["param1", "param2"]);
+            assert_eq!(cap1_meta.provider_agent, "test_agent1");
+            
+            // Check cap2 metadata
+            let cap2_meta = result.metadata.get("cap2").expect("cap2 metadata missing");
+            assert_eq!(cap2_meta.description, "Description for cap2");
+            assert!(cap2_meta.required_params.is_empty());
+            assert_eq!(cap2_meta.provider_agent, "test_agent1");
+        }
+    
+        #[tokio::test]
+        async fn test_get_available_capabilities_empty_registry() {
+            let service = AgentRegistryServer::default();
+            let request = Request::new(GetAvailableCapabilitiesRequest {});
+            let response = service.get_available_capabilities(request).await.unwrap();
+            let result = response.into_inner();
+            
+            assert!(result.capabilities.is_empty());
+            assert!(result.metadata.is_empty());
+        }
+    
+        #[tokio::test]
+        async fn test_get_available_capabilities_timeout() {
+            let service = AgentRegistryServer::default();
+            
+            // Simulate a slow lock by holding write lock
+            let _write_lock = service.agents.write().await;
+            
+            // Try to get capabilities (should timeout)
+            let request = Request::new(GetAvailableCapabilitiesRequest {});
+            let result = service.get_available_capabilities(request).await;
+            
+            assert!(result.is_err());
+            if let Err(status) = result {
+                assert_eq!(status.code(), tonic::Code::Internal);
+                assert!(status.message().contains("Failed to access agent registry"));
+            }
+        }
     }
 }
 
@@ -280,10 +567,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let registry_server = Arc::new(AgentRegistryServer::default());
     
-    // Load agents from config file
-    if let Err(e) = registry_server.load_from_config().await {
-        log::warn!("Failed to load agent config: {}. Starting with empty registry.", e);
+    // Load and verify agents from config file
+    if let Err(e) = registry_server.load_and_verify_agents().await {
+        log::warn!("Failed to load and verify agents: {}. Starting with empty registry.", e);
     }
+    
+    // Periodically verify agents health (could be done in a separate task)
+    let verify_server = registry_server.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            log::debug!("Running periodic agent health verification...");
+            if let Err(e) = verify_server.load_and_verify_agents().await {
+                log::error!("Agent verification failed: {}", e);
+            }
+        }
+    });
     
     let reg_for_health = registry_server.clone();
 

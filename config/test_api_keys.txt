@@ -1,0 +1,92 @@
+# Phoenix AGI System Test API Keys
+# ===================================
+# This file contains API keys specifically for testing purposes.
+# DO NOT USE THESE KEYS IN PRODUCTION!
+#
+# Format: One key per line
+# Lines starting with # are comments
+#
+# Test Categories:
+# - Authentication Testing
+# - Rate Limiting Testing  
+# - Integration Testing
+# - Performance Testing
+
+# === AUTHENTICATION TEST KEYS ===
+# Valid test key for successful authentication tests
+test-valid-key-001
+
+# Another valid key for testing multiple valid keys
+test-valid-key-002
+
+# === RATE LIMITING TEST KEYS ===
+# Key for testing rate limit boundaries (100 req/min)
+test-rate-limit-key-001
+
+# Secondary key for testing per-key rate limit isolation
+test-rate-limit-key-002
+
+# Key for testing rate limit reset after window
+test-rate-limit-reset-key
+
+# === INTEGRATION TEST KEYS ===
+# Key for integration testing with all services
+test-integration-key-001
+
+# Key for testing service-to-service communication
+test-service-mesh-key
+
+# === PERFORMANCE TEST KEYS ===
+# Key for load testing and performance benchmarking
+test-performance-key-001
+
+# Key for stress testing with high concurrency
+test-stress-key-001
+
+# === SECURITY TEST KEYS ===
+# Key for testing security boundaries and edge cases
+test-security-audit-key
+
+# Key for penetration testing (limited permissions)
+test-pentest-key
+
+# === DEVELOPMENT KEYS (Keep from original) ===
+# Default system keys (already in file - for backward compatibility)
+phoenix-default-key-2024
+phoenix-admin-key-secure
+phoenix-service-key-internal
+
+# Development keys
+dev-test-key-001
+dev-test-key-002
+
+# Service-specific keys
+orchestrator-service-key
+llm-service-key
+kb-service-key
+executor-service-key
+
+# === SPECIAL PURPOSE TEST KEYS ===
+# Key that will be revoked during testing
+test-revocation-key
+
+# Key with custom rate limits (if implemented)
+test-custom-rate-key
+
+# Key for testing API versioning
+test-api-v1-key
+test-api-v2-key
+
+# === MONITORING TEST KEYS ===
+# Key for testing metrics and logging
+test-monitoring-key
+
+# Key for testing audit trail functionality
+test-audit-key
+
+# === NOTES ===
+# - These keys are for testing only
+# - Never commit production keys to version control
+# - Rotate test keys periodically
+# - Each test category has dedicated keys to avoid interference
+# - Keys should be loaded by the API Gateway on startup

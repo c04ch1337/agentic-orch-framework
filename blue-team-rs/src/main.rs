@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::env;
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use tonic_health::server::{HealthReporter, HealthServer};
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -266,6 +267,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let blue_team_server = Arc::new(BlueTeamServer::default());
     let bt_for_health = blue_team_server.clone();
 
+    // Create a health reporter for the standard gRPC health checking protocol
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    
+    // Register the service with the health reporter
+    health_reporter.set_service_status("BLUE_TEAM_SENTINEL", tonic_health::ServingStatus::NotServing).await;
+
     // Attempt to register with Agent Registry (non-blocking)
     tokio::spawn(async {
         tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -275,9 +282,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::info!("BLUE Team Agent (BLUE_TEAM_SENTINEL) starting on {}", addr);
     println!("BLUE Team Agent listening on {}", addr);
 
+    // Initialize successfully, set status to serving
+    health_reporter.set_service_status("BLUE_TEAM_SENTINEL", tonic_health::ServingStatus::Serving).await;
+    log::info!("BLUE Team Agent health status set to SERVING");
+
     Server::builder()
         .add_service(BlueTeamServiceServer::from_arc(blue_team_server))
         .add_service(HealthServiceServer::from_arc(bt_for_health))
+        .add_service(health_service)  // Add the standard gRPC health service
         .serve(addr)
         .await?;
 

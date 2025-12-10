@@ -23,6 +23,7 @@ use agi_core::{
     context_manager_service_server::{ContextManagerService, ContextManagerServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
     data_router_service_client::DataRouterServiceClient,
+    llm_service_client::LLMServiceClient,
     ContextRequest,
     EnrichedContext,
     ContextEntry,
@@ -36,15 +37,24 @@ use agi_core::{
     GetUserRequest,
     AgiState,
     UserIdentity,
+    // New types for context compilation
+    CompileContextRequest,
+    CompiledContextResponse,
+    ContextSummarySchema,
+    RawContextData,
 };
 
-// Context Manager Server - simplified design
+// Context Manager Server - with addition of LLM context compilation
 #[derive(Debug)]
 pub struct ContextManagerServer {
     // Recent context cache for compaction
     context_cache: Arc<RwLock<Vec<ContextEntry>>>,
     // Client for Data Router to access KBs
     data_router_client: Arc<RwLock<Option<DataRouterServiceClient<tonic::transport::Channel>>>>,
+    // Client for LLM Service to compile context
+    llm_client: Arc<RwLock<Option<LLMServiceClient<tonic::transport::Channel>>>>,
+    // Default context summary schema
+    context_schema: Arc<RwLock<Option<ContextSummarySchema>>>,
 }
 
 impl ContextManagerServer {
@@ -52,7 +62,43 @@ impl ContextManagerServer {
         Self {
             context_cache: Arc::new(RwLock::new(Vec::new())),
             data_router_client: Arc::new(RwLock::new(None)),
+            llm_client: Arc::new(RwLock::new(None)),
+            context_schema: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Initialize the default context schema
+    pub fn init_context_schema(&self) {
+        let schema = ContextSummarySchema {
+            schema_id: "context-summary-v1".to_string(),
+            field_definitions: vec![
+                "last_action: string".to_string(),
+                "relevant_facts: [string]".to_string(),
+                "tool_definitions: [string]".to_string(),
+                "key_entities: [string]".to_string(),
+                "user_intent: string".to_string(),
+            ],
+            schema_description: "Structured context summary for AGI system prompt".to_string(),
+        };
+
+        let mut guard = self.context_schema.write().unwrap();
+        *guard = Some(schema);
+        log::info!("Initialized default context summary schema");
+    }
+    
+    /// Initialize the LLM Service client
+    pub async fn init_llm_client(&self, llm_addr: String) -> Result<(), Box<dyn std::error::Error>> {
+        log::info!("Connecting to LLM Service at {}", llm_addr);
+        let client = LLMServiceClient::connect(llm_addr).await?;
+        let mut guard = self.llm_client.write().await;
+        *guard = Some(client);
+        log::info!("Connected to LLM Service");
+        Ok(())
+    }
+    
+    // Helper to get LLM client
+    async fn get_llm_client(&self) -> Option<LLMServiceClient<tonic::transport::Channel>> {
+        self.llm_client.read().await.clone()
     }
 
     /// Initialize the Data Router Service client
@@ -166,14 +212,15 @@ impl ContextManagerServer {
         }]
     }
 
-    // Build system prompt based on agent type and context
+    // Build system prompt based on agent type and compiled context
     fn build_system_prompt(
-        &self, 
-        agent_type: &str, 
-        context_entries: &[ContextEntry],
+        &self,
+        agent_type: &str,
+        compiled_context_json: &str,
         sentiment_info: &str,
         identity_info: &str
     ) -> String {
+        // Get the base prompt based on agent type - this is the only context by default
         let base_prompt = match agent_type {
             "red_team" => std::env::var("PROMPT_RED_TEAM").unwrap_or_else(|_| {
                 "You are RED_TEAM_SHADOW, an ethical adversary simulation agent for PHOENIX ORCH. \
@@ -194,7 +241,7 @@ impl ContextManagerServer {
 
         let mut prompt = format!("{}\n\n", base_prompt);
         
-        // Add Identity & Sentiment Context
+        // Add Identity & Sentiment Context if available
         if !identity_info.is_empty() || !sentiment_info.is_empty() {
             prompt.push_str("## User Context\n");
             if !identity_info.is_empty() {
@@ -206,20 +253,69 @@ impl ContextManagerServer {
             prompt.push('\n');
         }
 
-        prompt.push_str("## Knowledge Base Context\n");
-        if !context_entries.is_empty() {
-            for entry in context_entries {
-                prompt.push_str(&format!(
-                    "- [{}] {}\n",
-                    entry.source_kb.to_uppercase(),
-                    entry.content
-                ));
-            }
-        } else {
-            prompt.push_str("No additional context available.\n");
+        // Add compiled context JSON if it's not empty
+        if !compiled_context_json.is_empty() {
+            prompt.push_str("## Compiled Context\n");
+            // Insert the validated JSON as structured context rather than raw conversation
+            prompt.push_str(&format!("```json\n{}\n```\n", compiled_context_json));
         }
 
         prompt
+    }
+
+    // Compile context using LLM service
+    async fn compile_context(
+        &self,
+        request_id: &str,
+        context_entries: &[ContextEntry],
+        query: &str,
+    ) -> Result<String, Status> {
+        // Get LLM client
+        let mut llm_client = match self.get_llm_client().await {
+            Some(client) => client,
+            None => {
+                log::warn!("LLM client not initialized for context compilation");
+                return Ok("".to_string()); // Return empty string if client not available
+            }
+        };
+
+        // Get context schema
+        let schema = match self.context_schema.read().unwrap().clone() {
+            Some(schema) => schema,
+            None => {
+                log::warn!("Context schema not initialized");
+                return Ok("".to_string()); // Return empty string if schema not available
+            }
+        };
+
+        // Prepare raw context data
+        let raw_data = RawContextData {
+            user_id: "default-user".to_string(),
+            entries: context_entries.to_vec(),
+            query: query.to_string(),
+            metadata: HashMap::new(),
+        };
+
+        // Create compile context request
+        let compile_request = CompileContextRequest {
+            request_id: request_id.to_string(),
+            raw_data: Some(raw_data),
+            schema: Some(schema),
+            max_output_tokens: 1000,
+        };
+
+        // Call LLM service to compile context
+        match llm_client.compile_context(tonic::Request::new(compile_request)).await {
+            Ok(response) => {
+                let inner = response.into_inner();
+                log::info!("Context compilation successful: {} tokens used", inner.tokens_used);
+                Ok(inner.compiled_json)
+            }
+            Err(e) => {
+                log::error!("Failed to compile context: {}", e);
+                Ok("".to_string()) // Return empty string on error
+            }
+        }
     }
 
     // Estimate token count (simple approximation: 4 chars = 1 token)
@@ -242,16 +338,14 @@ impl ContextManagerService for ContextManagerServer {
     ) -> Result<Response<EnrichedContext>, Status> {
         let req = request.into_inner();
         
-        log::info!("EnrichContext request: id={}, query={}, agent_type={}", 
+        log::info!("EnrichContext request: id={}, query={}, agent_type={}",
             req.request_id, req.query, req.agent_type);
 
-        // 1. Fetch Cognitive State (Heart & Social KBs)
-        // In a real scenario, we'd extract user_id from metadata
-        let user_id = "default-user"; 
-        
+        // STEP 1: RETRIEVAL - Fetch Cognitive State and KB Context
+        // Get user sentiment and identity information
+        let user_id = "default-user";
         let sentiment_task = self.get_user_sentiment(user_id);
         let identity_task = self.get_user_identity(user_id);
-        
         let (sentiment_opt, identity_opt) = tokio::join!(sentiment_task, identity_task);
         
         let sentiment_info = if let Some(s) = sentiment_opt {
@@ -266,21 +360,21 @@ impl ContextManagerService for ContextManagerServer {
             String::new()
         };
 
-        // 2. Determine which KBs to query for additional context
+        // Determine which KBs to query for additional context
         let kb_sources: Vec<&str> = if req.kb_sources.is_empty() {
             vec!["mind", "soul"]  // Default: mind for facts, soul for values
         } else {
             req.kb_sources.iter().map(|s| s.as_str()).collect()
         };
 
-        // 3. Query each KB and collect context
+        // Query each KB and collect raw context
         let mut all_entries = Vec::new();
         for kb in &kb_sources {
             let entries = self.query_kb(kb, &req.query).await;
             all_entries.extend(entries);
         }
 
-        // 4. Sort by relevance and limit to token budget
+        // Sort by relevance and limit to token budget
         all_entries.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
 
         let max_tokens = if req.max_context_tokens > 0 { req.max_context_tokens } else { 2000 };
@@ -295,10 +389,20 @@ impl ContextManagerService for ContextManagerServer {
             }
         }
 
-        // 5. Build the enriched system prompt with all context
+        // STEP 2: SUMMARIZATION - Compile retrieved context into structured format
+        // Call LLM service to generate a compiled view based on schema
+        let compiled_context_json = match self.compile_context(&req.request_id, &selected_entries, &req.query).await {
+            Ok(json) => json,
+            Err(e) => {
+                log::error!("Context compilation failed: {}", e);
+                String::new()
+            }
+        };
+
+        // STEP 3: COMPACTION - Build system prompt with compiled context
         let system_prompt = self.build_system_prompt(
-            &req.agent_type, 
-            &selected_entries,
+            &req.agent_type,
+            &compiled_context_json,
             &sentiment_info,
             &identity_info
         );
@@ -315,24 +419,27 @@ impl ContextManagerService for ContextManagerServer {
             }
         }
 
+        // Build the final response with compiled context
+        let mut metadata = HashMap::new();
+        metadata.insert("kb_sources".to_string(), kb_sources.join(","));
+        metadata.insert("agent_type".to_string(), req.agent_type.clone());
+        metadata.insert("sentiment_included".to_string(), (!sentiment_info.is_empty()).to_string());
+        metadata.insert("identity_included".to_string(), (!identity_info.is_empty()).to_string());
+        metadata.insert("context_compiled".to_string(), (!compiled_context_json.is_empty()).to_string());
+        
         let reply = EnrichedContext {
             request_id: req.request_id,
             original_query: req.query,
             system_prompt,
             context_entries: selected_entries,
             total_tokens_used: token_count,
-            metadata: {
-                let mut meta = HashMap::new();
-                meta.insert("kb_sources".to_string(), kb_sources.join(","));
-                meta.insert("agent_type".to_string(), req.agent_type);
-                meta.insert("sentiment_included".to_string(), (!sentiment_info.is_empty()).to_string());
-                meta.insert("identity_included".to_string(), (!identity_info.is_empty()).to_string());
-                meta
-            },
+            metadata,
         };
 
-        log::info!("EnrichContext complete: {} entries, {} tokens", 
-            reply.context_entries.len(), token_count);
+        log::info!("EnrichContext complete: compiled={}, entries={}, tokens={}",
+            !compiled_context_json.is_empty(),
+            reply.context_entries.len(),
+            token_count);
 
         Ok(Response::new(reply))
     }
@@ -399,7 +506,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "0.0.0.0:50064".to_string())
         .parse()?;
 
+    // Create server instance
     let server = Arc::new(ContextManagerServer::new());
+    
+    // Initialize the default context summary schema
+    server.init_context_schema();
+    
+    // Get service addresses from environment
+    let data_router_addr = std::env::var("DATA_ROUTER_ADDR")
+        .unwrap_or_else(|_| "http://localhost:50052".to_string());
+        
+    let llm_service_addr = std::env::var("LLM_SERVICE_ADDR")
+        .unwrap_or_else(|_| "http://localhost:50053".to_string());
+    
+    // Initialize client connections
+    if let Err(e) = server.init_data_router_client(data_router_addr).await {
+        log::error!("Failed to connect to Data Router: {}", e);
+    }
+    
+    if let Err(e) = server.init_llm_client(llm_service_addr).await {
+        log::error!("Failed to connect to LLM Service: {}", e);
+    }
 
     log::info!("ContextManagerService starting on {}", addr);
     println!("ContextManagerService listening on {}", addr);

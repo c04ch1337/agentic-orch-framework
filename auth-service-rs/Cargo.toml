@@ -2,7 +2,11 @@
 name = "auth-service-rs"
 version = "0.1.0"
 edition = "2021"
-description = "Authentication and Authorization Service for Phoenix ORCH AGI"
+description = "Authentication and Authorization Library for Phoenix ORCH AGI"
+
+[lib]
+name = "auth_service"
+path = "src/lib.rs"
 
 [dependencies]
 # Core runtime
@@ -19,17 +23,6 @@ serde_json = "1.0.105"
 toml = "0.8.0"
 uuid = { version = "1.4.1", features = ["v4", "serde"] }
 chrono = { version = "0.4.31", features = ["serde"] }
-
-# Networking and gRPC
-tonic = { version = "0.9.2", features = ["tls", "tls-roots"] }
-tonic-web = "0.9.2"
-prost = "0.11.9"
-prost-types = "0.11.9"
-
-# HTTP
-hyper = { version = "0.14.27", features = ["full"] }
-tower = "0.4.13"
-tower-http = { version = "0.4.3", features = ["trace", "cors", "auth"] }
 
 # JWT
 jsonwebtoken = "8.3.0"
@@ -53,18 +46,13 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
 tracing-appender = "0.2.2"
 log = "0.4.20"
-env_logger = "0.10.0"
 
 # Configuration
-dotenv = "0.15.0"
 config = "0.13.3"
 
 # Utilities
 regex = "1.9.3"
 url = "2.4.0"
-
-[build-dependencies]
-tonic-build = { version = "0.9.2", features = ["prost"] }
 
 [dev-dependencies]
 tokio-test = "0.4.3"

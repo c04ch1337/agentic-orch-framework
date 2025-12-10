@@ -213,6 +213,7 @@ jobs:
     name: Approve Production Deployment
     needs: pre-prod-testing
     runs-on: ubuntu-latest
+    environment: production
     
     steps:
       - name: Checkout code
@@ -237,6 +238,7 @@ jobs:
     name: Canary Deployment
     needs: approve-production-deploy
     runs-on: ubuntu-latest
+    environment: production
     
     steps:
       - name: Checkout code
@@ -388,6 +390,7 @@ jobs:
     name: Promote to Production
     needs: canary-deployment
     runs-on: ubuntu-latest
+    environment: production
     
     steps:
       - name: Checkout code
@@ -474,6 +477,7 @@ jobs:
     needs: promote-to-production
     if: failure()
     runs-on: ubuntu-latest
+    environment: production
     
     steps:
       - name: Checkout code

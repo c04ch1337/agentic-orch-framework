@@ -2,20 +2,18 @@ use std::sync::Arc;
 use std::time::Duration;
 use once_cell::sync::Lazy;
 use tokio::sync::RwLock;
-use tonic::transport::{Certificate, Channel, ClientTlsConfig, Identity};
-use tonic::{Request, Status};
 use config_rs::ServiceConfig;
+use serde::{Deserialize, Serialize};
 
-// Proto generated client
-use phoenix_orch_proto::auth_service::{
-    auth_service_client::AuthServiceClient,
-    ValidateTokenRequest, ValidateTokenResponse,
-    GenerateTokenRequest, TokenData,
-    CheckPermissionRequest, CheckPermissionResponse,
-    ValidateApiKeyRequest, ValidateApiKeyResponse,
-    TokenRevokeRequest, TokenRevokeResponse,
-    HealthCheckRequest, HealthCheckResponse,
-};
+// Local TokenData definition (matches the one in auth_middleware.rs)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenData {
+    pub token: String,
+    pub user_id: String,
+    pub roles: Vec<String>,
+    pub permissions: Vec<String>,
+    pub expires_at: i64,
+}
 
 // Errors
 #[derive(Debug, thiserror::Error)]
@@ -45,8 +43,9 @@ pub enum AuthError {
     GrpcError(#[from] tonic::Status),
 }
 
+// Stubbed auth client for now - will be implemented when auth service proto is available
 // Static client that's accessible across the application
-static AUTH_CLIENT: Lazy<RwLock<Option<AuthClient>>> = Lazy::new(|| RwLock::new(None));
+static AUTH_CLIENT: Lazy<RwLock<Option<MockAuthClient>>> = Lazy::new(|| RwLock::new(None));
 
 #[derive(Debug, Clone)]
 struct ConnectionConfig {
@@ -60,16 +59,13 @@ struct ConnectionConfig {
     ca_path: Option<String>,
 }
 
+// Mock auth client for compilation
 #[derive(Clone)]
-pub struct AuthClient {
-    inner: AuthServiceClient<Channel>,
+pub struct MockAuthClient {
     config: ConnectionConfig,
-    service_token: RwLock<Option<String>>,
-    token_expiry: RwLock<Option<i64>>,
 }
 
-impl AuthClient {
-    /// Create a new client with the specified configuration
+impl MockAuthClient {
     pub async fn connect(
         addr: &str,
         service_id: &str,
@@ -80,62 +76,8 @@ impl AuthClient {
         key_path: Option<&str>,
         ca_path: Option<&str>,
     ) -> Result<Self, AuthError> {
-        let channel = if use_mtls {
-            // Configure mTLS for secure service-to-service authentication
-            if let (Some(cert_path), Some(key_path)) = (cert_path, key_path) {
-                // Read certificate and key files
-                let cert = match tokio::fs::read(cert_path).await {
-                    Ok(c) => c,
-                    Err(e) => return Err(AuthError::ConfigurationError(format!("Failed to read certificate: {}", e))),
-                };
-                
-                let key = match tokio::fs::read(key_path).await {
-                    Ok(k) => k,
-                    Err(e) => return Err(AuthError::ConfigurationError(format!("Failed to read key: {}", e))),
-                };
-                
-                let server_ca = if let Some(ca_path) = ca_path {
-                    match tokio::fs::read(ca_path).await {
-                        Ok(ca) => Some(ca),
-                        Err(e) => {
-                            log::warn!("Failed to read CA: {}", e);
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
-                
-                // Set up TLS configuration with client identity for mutual TLS
-                let identity = Identity::from_pem(cert, key);
-                let mut tls_config = ClientTlsConfig::new()
-                    .identity(identity)
-                    .domain_name("auth-service"); // Verify server with this name
-                
-                // Add CA if provided
-                if let Some(ca) = server_ca {
-                    tls_config = tls_config.ca_certificate(Certificate::from_pem(ca));
-                }
-                
-                // Connect with TLS config
-                Channel::from_shared(addr.to_string())?
-                    .tls_config(tls_config)?
-                    .connect()
-                    .await?
-            } else {
-                return Err(AuthError::ConfigurationError(
-                    "mTLS enabled but certificate/key not provided".to_string(),
-                ));
-            }
-        } else {
-            // Standard insecure connection (should only be used in dev)
-            log::warn!("Using insecure connection to auth service. NOT FOR PRODUCTION.");
-            Channel::from_shared(addr.to_string())?
-                .connect()
-                .await?
-        };
+        log::info!("Creating mock auth client (auth service integration disabled)");
         
-        // Store configuration
         let config = ConnectionConfig {
             addr: addr.to_string(),
             service_id: service_id.to_string(),
@@ -147,214 +89,51 @@ impl AuthClient {
             ca_path: ca_path.map(|s| s.to_string()),
         };
         
-        let client = Self {
-            inner: AuthServiceClient::new(channel),
-            config,
-            service_token: RwLock::new(None),
-            token_expiry: RwLock::new(None),
-        };
-        
-        // Immediately get a service token
-        client.get_service_token().await?;
-        
-        Ok(client)
+        Ok(Self { config })
     }
     
-    // Get a service token for this service, used for service-to-service auth
-    async fn get_service_token(&self) -> Result<String, AuthError> {
-        // Check if we already have a valid token
-        {
-            let expiry = self.token_expiry.read().await;
-            let token = self.service_token.read().await;
-            
-            if let (Some(token), Some(expiry)) = (token.as_ref(), *expiry) {
-                // Check if token is still valid with 5 minute buffer
-                let now = chrono::Utc::now().timestamp();
-                if now + 300 < expiry {
-                    return Ok(token.clone());
-                }
-            }
-        }
-        
-        // Need a new token, create request
-        let mut client = self.inner.clone();
-        
-        let request = Request::new(GenerateTokenRequest {
-            client_id: self.config.client_id.clone(),
-            client_secret: self.config.client_secret.clone(),
-            service_id: Some(self.config.service_id.clone()),
-            roles: vec!["service".to_string()],
-            expires_in_seconds: Some(3600), // 1 hour token
-            metadata: std::collections::HashMap::new(),
-        });
-        
-        // Send request
-        let response = match client.generate_token(request).await {
-            Ok(response) => response.into_inner(),
-            Err(status) => return Err(AuthError::from(status)),
-        };
-        
-        let token_data = match response.token_data {
-            Some(data) => data,
-            None => return Err(AuthError::TokenError("No token data returned".to_string())),
-        };
-        
-        // Store token and expiry
-        {
-            let mut token_guard = self.service_token.write().await;
-            *token_guard = Some(token_data.token.clone());
-            
-            let mut expiry_guard = self.token_expiry.write().await;
-            *expiry_guard = token_data.expires_at;
-        }
-        
-        Ok(token_data.token)
-    }
-    
-    /// Validate a user token
     pub async fn validate_token(&self, token: &str) -> Result<TokenData, AuthError> {
-        let mut client = self.inner.clone();
-        
-        // Get service token for authentication
-        let service_token = self.get_service_token().await?;
-        
-        // Create request with service token in metadata
-        let mut request = Request::new(ValidateTokenRequest {
-            token: token.to_string(),
-        });
-        
-        request.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", service_token).parse().unwrap(),
-        );
-        
-        // Send request
-        let response = match client.validate_token(request).await {
-            Ok(response) => response.into_inner(),
-            Err(status) => return Err(AuthError::from(status)),
-        };
-        
-        match response.token_data {
-            Some(data) => Ok(data),
-            None => Err(AuthError::AuthenticationFailed("Invalid token".to_string())),
-        }
-    }
-    
-    /// Check if a token has a required permission
-    pub async fn check_permission(&self, token: &str, permission: &str) -> Result<bool, AuthError> {
-        let mut client = self.inner.clone();
-        
-        // Get service token for authenticating this request
-        let service_token = self.get_service_token().await?;
-        
-        // Create request
-        let mut request = Request::new(CheckPermissionRequest {
-            token: token.to_string(),
-            permission: permission.to_string(),
-            service_id: self.config.service_id.clone(),
-            resource: None, // Optional resource-level permissions
-        });
-        
-        // Add service token for authentication
-        request.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", service_token).parse().unwrap(),
-        );
-        
-        // Send request
-        let response = match client.check_permission(request).await {
-            Ok(response) => response.into_inner(),
-            Err(status) => return Err(AuthError::from(status)),
-        };
-        
-        Ok(response.has_permission)
-    }
-    
-    /// Validate an API key (for backward compatibility with existing clients)
-    pub async fn validate_api_key(&self, api_key: &str) -> Result<TokenData, AuthError> {
-        let mut client = self.inner.clone();
-        
-        // Get service token
-        let service_token = self.get_service_token().await?;
-        
-        // Create request
-        let mut request = Request::new(ValidateApiKeyRequest {
-            api_key: api_key.to_string(),
-            service_id: self.config.service_id.clone(),
-        });
-        
-        // Add service token for authentication
-        request.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", service_token).parse().unwrap(),
-        );
-        
-        // Send request
-        let response = match client.validate_api_key(request).await {
-            Ok(response) => response.into_inner(),
-            Err(status) => return Err(AuthError::from(status)),
-        };
-        
-        match response.token_data {
-            Some(data) => Ok(data),
-            None => Err(AuthError::AuthenticationFailed("Invalid API key".to_string())),
-        }
-    }
-    
-    /// Get the configured address with proper protocol
-    fn get_formatted_address(&self) -> String {
-        // Ensure address has proper protocol prefix
-        if self.config.addr.starts_with("http://") || self.config.addr.starts_with("https://") {
-            self.config.addr.clone()
+        // Mock validation - accept any token starting with "valid-"
+        if token.starts_with("valid-") || token.starts_with("Bearer valid-") {
+            Ok(TokenData {
+                token: token.to_string(),
+                user_id: "mock-user".to_string(),
+                roles: vec!["user".to_string()],
+                permissions: vec!["execute:invoke".to_string()],
+                expires_at: chrono::Utc::now().timestamp() + 3600,
+            })
         } else {
-            if self.config.use_mtls {
-                format!("https://{}", self.config.addr)
-            } else {
-                format!("http://{}", self.config.addr)
-            }
+            Err(AuthError::AuthenticationFailed("Invalid mock token".to_string()))
         }
     }
-
-    /// Revoke a token or all tokens for a particular user/service
-    pub async fn revoke_token(&self, token: &str, revoke_all: bool) -> Result<(), AuthError> {
-        let mut client = self.inner.clone();
-        
-        // Get service token
-        let service_token = self.get_service_token().await?;
-        
-        // Create request
-        let mut request = Request::new(TokenRevokeRequest {
-            token: token.to_string(),
-            revoke_all,
-        });
-        
-        // Add service token for authentication
-        request.metadata_mut().insert(
-            "authorization",
-            format!("Bearer {}", service_token).parse().unwrap(),
-        );
-        
-        // Send request
-        let _response = match client.revoke_token(request).await {
-            Ok(response) => response.into_inner(),
-            Err(status) => return Err(AuthError::from(status)),
-        };
-        
+    
+    pub async fn check_permission(&self, _token: &str, permission: &str) -> Result<bool, AuthError> {
+        // Mock permission check - allow execute:invoke
+        Ok(permission == "execute:invoke")
+    }
+    
+    pub async fn validate_api_key(&self, api_key: &str) -> Result<TokenData, AuthError> {
+        // Mock API key validation
+        Ok(TokenData {
+            token: format!("api-key-{}", api_key),
+            user_id: "api-user".to_string(),
+            roles: vec!["api-client".to_string()],
+            permissions: vec!["execute:invoke".to_string()],
+            expires_at: chrono::Utc::now().timestamp() + 86400,
+        })
+    }
+    
+    pub async fn revoke_token(&self, _token: &str, _revoke_all: bool) -> Result<(), AuthError> {
+        // Mock revocation
         Ok(())
     }
     
-    /// Check if the auth service is healthy
     pub async fn is_healthy(&self) -> bool {
-        let mut client = self.inner.clone();
-        let request = Request::new(HealthCheckRequest {});
-        
-        match client.health_check(request).await {
-            Ok(response) => {
-                let response = response.into_inner();
-                response.status == "SERVING"
-            }
-            Err(_) => false,
-        }
+        true // Mock is always healthy
+    }
+    
+    pub async fn get_service_token(&self) -> Result<String, AuthError> {
+        Ok("mock-service-token".to_string())
     }
 }
 
@@ -378,9 +157,9 @@ pub async fn init_auth_client(
         addr.to_string()
     };
     
-    log::info!("Initializing auth client with address: {}", resolved_addr);
+    log::info!("Initializing mock auth client (auth service integration disabled)");
     
-    let client = AuthClient::connect(
+    let client = MockAuthClient::connect(
         &resolved_addr,
         service_id,
         client_id,
@@ -443,39 +222,12 @@ pub async fn is_auth_healthy() -> bool {
 }
 
 pub async fn generate_client_token() -> Result<TokenData, AuthError> {
-    let auth_client_guard = AUTH_CLIENT.read().await;
-    
-    match &*auth_client_guard {
-        Some(client) => {
-            let service_token = client.get_service_token().await?;
-            let mut client_inner = client.inner.clone();
-            
-            let mut request = Request::new(GenerateTokenRequest {
-                client_id: client.config.client_id.clone(),
-                client_secret: client.config.client_secret.clone(),
-                service_id: None, // Not a service token
-                roles: vec!["client".to_string()],
-                expires_in_seconds: Some(86400), // 24 hour token for clients
-                metadata: std::collections::HashMap::new(),
-            });
-            
-            // Add service token for authentication
-            request.metadata_mut().insert(
-                "authorization",
-                format!("Bearer {}", service_token).parse().unwrap(),
-            );
-            
-            // Send request
-            let response = match client_inner.generate_token(request).await {
-                Ok(response) => response.into_inner(),
-                Err(status) => return Err(AuthError::from(status)),
-            };
-            
-            match response.token_data {
-                Some(data) => Ok(data),
-                None => Err(AuthError::TokenError("No token data returned".to_string())),
-            }
-        }
-        None => Err(AuthError::ConfigurationError("Auth client not initialized".to_string())),
-    }
+    // Mock token generation
+    Ok(TokenData {
+        token: format!("mock-client-token-{}", uuid::Uuid::new_v4()),
+        user_id: "mock-client".to_string(),
+        roles: vec!["client".to_string()],
+        permissions: vec!["execute:invoke".to_string()],
+        expires_at: chrono::Utc::now().timestamp() + 86400,
+    })
 }

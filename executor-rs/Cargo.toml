@@ -3,31 +3,49 @@ name = "executor-rs"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-# gRPC
-prost = "0.14.1"
-tokio = { version = "1.48.0", features = ["full"] }
-tonic = "0.14.2"
-tonic-prost = "0.14.2"
+[lib]
+name = "executor"
+path = "src/lib.rs"
 
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+[dependencies]
+# Windows Service and Job Object
+windows-service = "0.6.0"
+windows-job-object = "0.5.0"
+
+# Async Runtime
+tokio = { version = "1.48.0", features = ["full"] }
 
 # Logging
 log = "0.4.29"
-env_logger = "0.11"
-tracing = "0.1.43"
 once_cell = "1.20"
 
 # Input Simulation
 enigo = "0.0.14"
 
-# Docker Client (for sandboxing)
-bollard = "0.18"
-uuid = { version = "1.6", features = ["v4"] }
-futures = "0.3"
-tempfile = "3.8"
+# Windows API for Native Execution Control
+winapi = { version = "0.3", features = [
+    "winnt",           # Core Windows types
+    "winuser",         # User-related APIs
+    "processthreadsapi", # Process and thread management
+    "processenv",      # Process environment APIs
+    "handleapi",       # Handle management
+    "jobapi2",         # Job Object APIs
+    "synchapi",        # Synchronization APIs
+    "errhandlingapi",  # Error handling
+    "winbase",         # Base Windows APIs
+    "memoryapi",       # Memory management
+    "securitybaseapi", # Security APIs
+    "minwindef",       # Basic Windows definitions
+    "fileapi",         # File APIs
+    "ioapiset",        # I/O APIs
+    "namedpipeapi",    # Named pipe APIs for IPC
+    "sddl",            # Security descriptor definition language
+    "aclapi",          # ACL management
+    "winerror",        # Windows error codes
+    "impl-default"     # Default implementations
+] }
 
-[build-dependencies]
-tonic-prost-build = "0.14.2"
+# Additional Windows utilities
+regex = "1.10"
+uuid = { version = "1.6", features = ["v4"] }
+tempfile = "3.8"

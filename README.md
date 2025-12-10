@@ -14,6 +14,36 @@
 
 ---
 
+## 🌍 Environment Configuration
+
+The system uses a **Template + Override** strategy to manage configurations across Development, Staging, and Production environments safely.
+
+### Configuration Files
+- **`.env`**: The **active configuration file** read by the application. **Do not edit manually** if using the switcher.
+- **`.env.example.consolidated`**: The **Master Template** containing all possible variables.
+- **`.env.dev`**: Development-specific overrides (Debug logging, local services).
+- **`.env.staging`**: Staging-specific overrides (Info logging, staging endpoints).
+- **`.env.production`**: Production-specific overrides (Warn logging, secure endpoints).
+
+### Switching Environments
+Use the provided scripts to switch environments. This will backup your current `.env`, copy the template, and apply the correct overrides.
+
+**PowerShell (Windows):**
+```powershell
+.\env_switcher.ps1 -Environment development
+.\env_switcher.ps1 -Environment staging
+.\env_switcher.ps1 -Environment production
+```
+
+**Bash (Linux/Mac):**
+```bash
+./env_switcher.sh development
+./env_switcher.sh staging
+./env_switcher.sh production
+```
+
+---
+
 ## 🚀 Architecture Overview
 
 The system is organized as a single **Rust Workspace** containing 23 crates.
@@ -72,6 +102,53 @@ The system is organized as a single **Rust Workspace** containing 23 crates.
 | **API Gateway** | 8000 | **REST Interface.** Exposes `POST /api/v1/execute` to external clients. Translates JSON to gRPC. |
 
 ---
+
+## 🔒 Executor Service - Windows Native Implementation
+
+The **Executor Service** (Port 50055) has been refactored from Docker-based containerization to **Windows native execution** using low-level Windows APIs for enhanced security and performance.
+
+### Key Features
+
+#### Security Architecture
+- **Windows Job Objects**: Process isolation with resource limits (100MB/process, 500MB total)
+- **Low Integrity Level**: Restricted process privileges (pending full implementation)
+- **Sandboxed Execution**: All code runs in `C:\phoenix_sandbox` with path validation
+- **Process Watchdog**: 30-second timeout enforcement with automatic termination
+
+#### Resource Management
+- **Memory Limits**: 100MB per process, 500MB for entire job
+- **Process Limits**: Maximum 5 concurrent processes
+- **CPU Controls**: Configurable CPU rate limiting
+- **Automatic Cleanup**: Job Object ensures child process termination
+
+#### Command Validation
+- **Allowlist Enforcement**: Only permitted commands can execute
+- **Path Validation**: File operations restricted to sandbox directory
+- **Error Sanitization**: Sensitive information removed from error messages
+
+### Deployment
+
+See [`executor-rs-deployment-guide.md`](executor-rs-deployment-guide.md) for detailed installation and configuration instructions.
+
+**Quick Start:**
+```powershell
+# Windows (PowerShell as Administrator)
+New-Item -ItemType Directory -Path "C:\phoenix_sandbox" -Force
+.\target\release\executor-rs.exe
+
+# Verify service is running
+Test-NetConnection -ComputerName localhost -Port 50055
+```
+
+### Architecture Documentation
+
+For complete technical details, see:
+- [`executor-rs-windows-architecture.md`](executor-rs-windows-architecture.md) - Full architecture and component documentation
+- [`executor-rs-testing-report.md`](executor-rs-testing-report.md) - Testing results and identified issues
+
+---
+
+## 📋 Development Guidelines
 
 - Coordinate with Soul-KB for ethical boundary checks
 - Use the Logging Service for immutable audit trails

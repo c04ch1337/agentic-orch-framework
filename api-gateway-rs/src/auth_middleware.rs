@@ -24,6 +24,16 @@ pub use crate::auth_client::{
     is_auth_healthy,
 };
 
+// Token data structure (local definition instead of phoenix_orch_proto)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenData {
+    pub token: String,
+    pub user_id: String,
+    pub roles: Vec<String>,
+    pub permissions: Vec<String>,
+    pub expires_at: i64,
+}
+
 // Permission maps for endpoints
 static ENDPOINT_PERMISSIONS: Lazy<RwLock<HashMap<String, String>>> = Lazy::new(|| {
     let mut map = HashMap::new();
@@ -152,7 +162,7 @@ where
     }
     
     // Get token from auth_middleware's extensions
-    let token_data = match req.extensions().get::<phoenix_orch_proto::auth_service::TokenData>() {
+    let token_data = match req.extensions().get::<TokenData>() {
         Some(data) => data,
         None => {
             return Err((

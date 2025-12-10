@@ -1,0 +1,97 @@
+{
+  "timestamp": "2025-12-09T23:19:07.556890",
+  "summary": {
+    "total": 12,
+    "passed": 1,
+    "failed": 11,
+    "success_rate": "8.3%"
+  },
+  "tests": [
+    {
+      "name": "Auth: Valid API Key",
+      "passed": false,
+      "message": "Request failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/execute (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C1457E00>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.100213527679443,
+      "details": {}
+    },
+    {
+      "name": "Auth: Invalid API Key",
+      "passed": false,
+      "message": "Request failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/execute (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C146F250>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.081444263458252,
+      "details": {}
+    },
+    {
+      "name": "Auth: Missing API Key",
+      "passed": false,
+      "message": "Request failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/execute (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C146F890>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.098082780838013,
+      "details": {}
+    },
+    {
+      "name": "Rate Limit: Within Limit (100 requests)",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C147F490>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.077198028564453,
+      "details": {}
+    },
+    {
+      "name": "Rate Limit: Exceeding Limit (101st request)",
+      "passed": false,
+      "message": "Request failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C147EB10>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.072843313217163,
+      "details": {}
+    },
+    {
+      "name": "Rate Limit: Per-Key Isolation",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C150D7F0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.0913310050964355,
+      "details": {}
+    },
+    {
+      "name": "Schema: AgiResponse Structure",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/execute (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C1524380>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.071625471115112,
+      "details": {}
+    },
+    {
+      "name": "TLS: Connection Security",
+      "passed": true,
+      "message": "TLS not enabled (expected for test environment)",
+      "duration": 4.76837158203125e-07,
+      "details": {
+        "tls_enabled": false
+      }
+    },
+    {
+      "name": "Headers: CORS Configuration",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /health (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C1525370>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.098276853561401,
+      "details": {}
+    },
+    {
+      "name": "Error Handling: Malformed JSON",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/execute (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C15256A0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.0967323780059814,
+      "details": {}
+    },
+    {
+      "name": "Error Handling: Invalid Endpoint",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/invalid_endpoint (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C15258C0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.105136156082153,
+      "details": {}
+    },
+    {
+      "name": "Error Handling: Payload Size Limit",
+      "passed": false,
+      "message": "Test failed: HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded with url: /api/v1/execute (Caused by NewConnectionError('<urllib3.connection.HTTPConnection object at 0x000001C7C1525AE0>: Failed to establish a new connection: [WinError 10061] No connection could be made because the target machine actively refused it'))",
+      "duration": 4.105145454406738,
+      "details": {}
+    }
+  ]
+}

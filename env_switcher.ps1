@@ -7,12 +7,18 @@
 # 3. Applying environment-specific overrides automatically
 # ==============================================================
 
+# Parse command-line arguments
+param (
+    [string]$Environment,
+    [switch]$Help
+)
+
 # Default values
 $EnvExample = Join-Path $PSScriptRoot ".env.example.consolidated"
 $EnvFile = Join-Path $PSScriptRoot ".env"
 $SelectedEnv = ""
 
-function Print-Usage {
+function Show-Usage {
     Write-Host "Usage: .\env_switcher.ps1 [OPTIONS]"
     Write-Host "Options:"
     Write-Host "  -Environment <ENV>   Set environment (development|staging|production)"
@@ -25,7 +31,7 @@ function Print-Usage {
     Write-Host "  .\env_switcher.ps1 -Environment prod"
 }
 
-function Copy-Template {
+function Copy-EnvironmentTemplate {
     # Check if .env.example.consolidated exists
     if (-not (Test-Path $EnvExample)) {
         Write-Host "Error: Template file not found at $EnvExample" -ForegroundColor Red
@@ -46,7 +52,7 @@ function Copy-Template {
     Write-Host "Created new .env file from template."
 }
 
-function Apply-EnvironmentSettings {
+function Set-EnvironmentSettings {
     param (
         [string]$env
     )
@@ -136,15 +142,9 @@ function Apply-EnvironmentSettings {
     }
 }
 
-# Parse command-line arguments
-param (
-    [string]$Environment,
-    [switch]$Help
-)
-
 # Show help if requested
 if ($Help) {
-    Print-Usage
+    Show-Usage
     exit 0
 }
 
@@ -154,7 +154,7 @@ $SelectedEnv = $Environment
 # Validate input
 if ([string]::IsNullOrEmpty($SelectedEnv)) {
     Write-Host "Error: No environment specified." -ForegroundColor Red
-    Print-Usage
+    Show-Usage
     exit 1
 }
 
@@ -174,8 +174,8 @@ if ($SelectedEnv -notin @("development", "staging", "production")) {
 
 # Execute the environment switching
 Write-Host "Switching to $SelectedEnv environment..."
-Copy-Template
-Apply-EnvironmentSettings $SelectedEnv
+Copy-EnvironmentTemplate
+Set-EnvironmentSettings $SelectedEnv
 
 Write-Host "Environment successfully switched to $SelectedEnv" -ForegroundColor Green
 Write-Host "To apply these changes, restart your containers with:" -ForegroundColor Yellow

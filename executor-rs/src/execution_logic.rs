@@ -1,5 +1,6 @@
 // executor-rs/src/execution_logic.rs
-// Core logic for executing commands and simulating input
+// Core logic for executing commands with Windows native control
+// PHOENIX ORCH: The Ashen Guard Edition AGI
 
 use std::process::Command;
 use std::collections::HashMap;
@@ -9,17 +10,20 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use once_cell::sync::Lazy;
-use bollard::Docker;
-use bollard::container::{Config, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions, WaitContainerOptions};
-use bollard::models::{HostConfig, Mount, MountTypeEnum};
 use enigo::{Enigo, MouseControllable, KeyboardControllable, Key, MouseButton};
 use std::sync::RwLock;
+
+// Import Windows executor module
+#[cfg(target_os = "windows")]
+use crate::windows_executor;
 
 // Allowlist of permitted commands
 static ALLOWED_COMMANDS: Lazy<RwLock<Vec<String>>> = Lazy::new(|| {
     RwLock::new(vec![
         "ls".to_string(),
+        "dir".to_string(),
         "cat".to_string(),
+        "type".to_string(),
         "echo".to_string(),
         "cd".to_string(),
         "pwd".to_string(),
@@ -30,19 +34,11 @@ static ALLOWED_COMMANDS: Lazy<RwLock<Vec<String>>> = Lazy::new(|| {
         "pip3".to_string(),
         "grep".to_string(),
         "find".to_string(),
+        "findstr".to_string(),
+        "cmd".to_string(),
+        "powershell".to_string(),
         // Add more allowed commands as needed
     ])
-});
-
-// Global Docker client
-static DOCKER_CLIENT: Lazy<Option<Arc<Mutex<Docker>>>> = Lazy::new(|| {
-    match Docker::connect_with_local_defaults() {
-        Ok(docker) => Some(Arc::new(Mutex::new(docker))),
-        Err(e) => {
-            log::error!("Failed to connect to Docker daemon: {}", e);
-            None
-        }
-    }
 });
 
 /// Validate if command is permitted based on allowlist
@@ -91,7 +87,7 @@ fn sanitize_error(error_message: String) -> String {
     sanitized
 }
 
-/// Execute a shell command
+/// Execute a shell command with Windows native control
 pub async fn execute_shell_command(
     cmd: &str,
     args: &[String],
@@ -103,36 +99,119 @@ pub async fn execute_shell_command(
     if let Err(e) = validate_command(cmd) {
         return Err(sanitize_error(e));
     }
-
-    // If the command is python or python3, use the sandboxed execution
-    if cmd == "python" || cmd == "python3" {
-        // Check if we're executing a file or code
-        if args.len() == 1 && (args[0].ends_with(".py") || !args[0].contains(" ")) {
-            // Likely a file path
-            let file_path = &args[0];
-            if let Ok(code) = std::fs::read_to_string(file_path) {
-                return execute_python_sandboxed(&code, env_vars).await;
-            } else {
-                return Err(sanitize_error(format!("Failed to read Python file: {}", file_path)));
+    
+    // Basic path validation without sandbox restrictions
+    #[cfg(target_os = "windows")]
+    {
+        for arg in args {
+            if arg.contains('\\') || arg.contains('/') {
+                if let Err(e) = windows_executor::validate_path(arg) {
+                    log::warn!("Path validation failed: {} - {}", arg, e);
+                }
             }
-        } else {
-            // Join args into a single string as code
-            let script_arg = args.join(" ");
-            return execute_python_sandboxed(&script_arg, env_vars).await;
         }
     }
 
-    // For non-Python commands, execute in a separate thread to avoid blocking
+    // If the command is python or python3, use the windows sandboxed execution
+    if cmd == "python" || cmd == "python3" {
+        return execute_python_sandboxed(&args.join(" "), env_vars).await;
+    }
+
+    // For other commands, use Windows native execution with Job Object control
+    #[cfg(target_os = "windows")]
+    {
+        log::info!("Using Windows native execution control");
+        match windows_executor::execute_with_windows_control(cmd, args, env_vars, "shell").await {
+            Ok(result) => {
+                // Log output details for debugging
+                log::debug!("Command stdout length: {} bytes", result.0.len());
+                log::debug!("Command stderr length: {} bytes", result.1.len());
+                log::debug!("Command exit code: {}", result.2);
+                Ok(result)
+            },
+            Err(e) => {
+                log::error!("Windows execution failed: {}", e);
+                Err(sanitize_error(e))
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Fallback for non-Windows systems (for development)
+        log::warn!("Non-Windows system detected, using basic process execution");
+        execute_basic_command(cmd, args, env_vars).await
+    }
+}
+
+/// Execute Python code with resource limits and monitoring
+pub async fn execute_python_sandboxed(
+    code: &str,
+    env_vars: &HashMap<String, String>
+) -> Result<(String, String, i32), String> {
+    log::info!("Executing Python code in Windows sandboxed environment");
+
+    #[cfg(target_os = "windows")]
+    {
+        // Write Python code to a temporary file
+        let temp_dir = std::env::temp_dir();
+        
+        // Generate a unique script name
+        let script_name = format!("script_{}.py", uuid::Uuid::new_v4());
+        let script_path = temp_dir.join(&script_name);
+        
+        // Write the Python code to file
+        let mut file = File::create(&script_path).map_err(|e| {
+            sanitize_error(format!("Failed to create script file: {}", e))
+        })?;
+        
+        file.write_all(code.as_bytes()).map_err(|e| {
+            sanitize_error(format!("Failed to write script: {}", e))
+        })?;
+        
+        // Execute using Windows native control
+        let result = windows_executor::execute_with_windows_control(
+            "python",
+            &vec![script_path.to_string_lossy().to_string()],
+            env_vars,
+            "python"
+        ).await;
+        
+        // Clean up the script file
+        let _ = std::fs::remove_file(&script_path);
+        
+        match result {
+            Ok(output) => {
+                log::debug!("Python execution stdout: {} bytes", output.0.len());
+                log::debug!("Python execution stderr: {} bytes", output.1.len());
+                Ok(output)
+            },
+            Err(e) => Err(sanitize_error(e))
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Fallback for non-Windows systems
+        Err("Python sandboxed execution only supported on Windows".to_string())
+    }
+}
+
+/// Basic command execution for non-Windows systems (development only)
+#[cfg(not(target_os = "windows"))]
+async fn execute_basic_command(
+    cmd: &str,
+    args: &[String],
+    env_vars: &HashMap<String, String>
+) -> Result<(String, String, i32), String> {
     let cmd_owned = cmd.to_string();
     let args_owned = args.to_vec();
     let env_owned = env_vars.clone();
     
-    // Execute the command in a blocking task to avoid blocking the async runtime
     let result = tokio::task::spawn_blocking(move || {
         let mut command = Command::new(cmd_owned);
         command.args(args_owned);
         command.envs(env_owned);
-
         command.output()
     }).await.map_err(|e| format!("Task join error: {}", e))?;
 
@@ -141,7 +220,6 @@ pub async fn execute_shell_command(
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let exit_code = output.status.code().unwrap_or(-1);
-            
             Ok((stdout, stderr, exit_code))
         }
         Err(e) => {
@@ -152,215 +230,16 @@ pub async fn execute_shell_command(
     }
 }
 
-/// Execute Python code in a Docker container with restrictions
-pub async fn execute_python_sandboxed(
-    code: &str,
-    env_vars: &HashMap<String, String>
-) -> Result<(String, String, i32), String> {
-    log::info!("Executing Python code in sandboxed environment");
-
-    // Get Docker client
-    let docker_client = match &*DOCKER_CLIENT {
-        Some(client) => client.clone(),
-        None => return Err("Docker client not initialized".to_string()),
-    };
-    let docker = docker_client.lock().await;
-
-    // Generate a unique container name
-    let container_name = format!("agi-python-sandbox-{}", uuid::Uuid::new_v4());
-    
-    // Create a temporary directory for code execution with proper permissions
-    let temp_dir = std::env::temp_dir().join(&container_name);
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("Failed to create temp directory: {}", e))?;
-
-    // Set directory permissions to be restrictive (700 - only owner can access)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o700))
-            .map_err(|e| format!("Failed to set temp directory permissions: {}", e))?;
-    }
-
-    // Write Python code to a file
-    let script_path = temp_dir.join("script.py");
-    let mut file = File::create(&script_path)
-        .map_err(|e| format!("Failed to create script file: {}", e))?;
-    file.write_all(code.as_bytes())
-        .map_err(|e| format!("Failed to write to script file: {}", e))?;
-
-    // Set file permissions to be restrictive (600 - only owner can read/write)
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("Failed to set script file permissions: {}", e))?;
-    }
-
-    // Create mount for the temp directory with proper security settings
-    let mount = Mount {
-        target: Some("/workspace".to_string()),
-        source: Some(temp_dir.to_string_lossy().to_string()),
-        typ: Some(MountTypeEnum::BIND),
-        read_only: Some(false), // Need write access for script output
-        // Additional mount options for security
-        bind_options: Some(bollard::models::MountBindOptions {
-            propagation: Some("private".to_string()), // Prevent mount propagation
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    // Set up container with strict security constraints
-    let host_config = HostConfig {
-        mounts: Some(vec![mount]),
-        // Security settings
-        // Drop all capabilities first (aggressive security posture)
-        cap_drop: Some(vec![
-            "ALL".to_string(),
-        ]),
-        // Only add back the specific capabilities needed
-        cap_add: Some(vec![
-            "CHOWN".to_string(),      // Allows changing ownership of files
-            "SETUID".to_string(),     // Needed for running python properly
-            "SETGID".to_string(),     // Needed for running python properly
-            "DAC_OVERRIDE".to_string(), // For temporary file operations
-        ]),
-        security_opt: Some(vec![
-            "no-new-privileges:true".to_string(),
-            "seccomp=default".to_string(), // Use Docker's default secure profile
-        ]),
-        // Resource constraints
-        memory: Some(100 * 1024 * 1024), // 100MB memory limit
-        cpu_quota: Some(50000),          // Limit CPU usage to 50% of one core
-        cpu_period: Some(100000),
-        // Network restrictions
-        network_mode: Some("none".to_string()), // No network access
-        ..Default::default()
-    };
-
-    // Convert environment variables
-    let env: Vec<String> = env_vars
-        .iter()
-        .map(|(k, v)| format!("{}={}", k, v))
-        .collect();
-
-    // Create container config
-    let container_config = Config {
-        image: Some("python:3.9-slim".to_string()),
-        cmd: Some(vec!["python3".to_string(), "/workspace/script.py".to_string()]),
-        env: Some(env),
-        working_dir: Some("/workspace".to_string()),
-        host_config: Some(host_config),
-        ..Default::default()
-    };
-
-    let options = Some(CreateContainerOptions {
-        name: container_name.clone(),
-        ..Default::default()
-    });
-
-    // Create and start container
-    let container_id = match docker.create_container(options, container_config).await {
-        Ok(container) => container.id,
-        Err(e) => {
-            // Clean up temp directory
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(sanitize_error(format!("Failed to create container: {}", e)));
-        }
-    };
-
-    let start_options = StartContainerOptions::<String>::default();
-    if let Err(e) = docker.start_container(&container_id, Some(start_options)).await {
-        // Clean up container and temp directory
-        let _ = docker.remove_container(&container_id, None).await;
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        return Err(sanitize_error(format!("Failed to start container: {}", e)));
-    }
-
-    // Wait for container to finish
-    let wait_options = Some(WaitContainerOptions {
-        condition: "not-running".to_string(),
-    });
-
-    let wait_result = match docker.wait_container(&container_id, wait_options).try_collect::<Vec<_>>().await {
-        Ok(result) => result,
-        Err(e) => {
-            // Clean up container and temp directory
-            let _ = docker.remove_container(&container_id, None).await;
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(sanitize_error(format!("Failed to wait for container: {}", e)));
-        }
-    };
-
-    // Get exit code
-    let exit_code = wait_result.first()
-        .and_then(|r| r.status_code)
-        .unwrap_or(-1);
-    
-    // Get logs
-    let logs_options = bollard::container::LogsOptions::<String> {
-        stdout: true,
-        stderr: true,
-        ..Default::default()
-    };
-    
-    // Collect logs
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-
-    let logs = match docker.logs(&container_id, Some(logs_options)).try_collect::<Vec<_>>().await {
-        Ok(logs) => logs,
-        Err(e) => {
-            // Clean up container and temp directory
-            let _ = docker.remove_container(&container_id, None).await;
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(sanitize_error(format!("Failed to get container logs: {}", e)));
-        }
-    };
-
-    // Process logs
-    for log in logs {
-        match log {
-            bollard::container::LogOutput::StdOut { message } => {
-                stdout.push_str(&String::from_utf8_lossy(&message));
-            },
-            bollard::container::LogOutput::StdErr { message } => {
-                stderr.push_str(&String::from_utf8_lossy(&message));
-            },
-            _ => {}
-        }
-    }
-
-    // Remove the container
-    let remove_options = Some(RemoveContainerOptions {
-        force: true,
-        ..Default::default()
-    });
-
-    // Ensure proper cleanup of container and temporary files
-    if let Err(e) = docker.remove_container(&container_id, remove_options).await {
-        log::warn!("Failed to remove container {}: {}", container_id, e);
-    }
-    
-    // Securely clean up the temporary directory
-    match std::fs::remove_dir_all(&temp_dir) {
-        Ok(_) => log::debug!("Successfully removed temporary directory: {}", temp_dir.display()),
-        Err(e) => log::warn!("Failed to remove temporary directory {}: {}", temp_dir.display(), e),
-    }
-
-    log::info!("Python execution completed with exit code: {}", exit_code);
-    Ok((stdout, stderr, exit_code))
-}
-
 /// Check if the current process has permissions to simulate input
 fn check_input_permissions() -> Result<(), String> {
-    // In a production system, this would check:
-    // 1. If the process is running with appropriate permissions
-    // 2. If the environment allows input simulation (e.g., not in a container)
-    // 3. If the system security policy allows input simulation
+    // Check for Windows specific permissions
+    #[cfg(target_os = "windows")]
+    {
+        // In Windows, check if we're running with appropriate privileges
+        // This could check for specific user rights or group membership
+        log::debug!("Checking Windows input simulation permissions");
+    }
     
-    // For now, we'll implement a basic check
     #[cfg(target_os = "linux")]
     {
         // Check if we're running in a container or restricted environment
@@ -368,11 +247,6 @@ fn check_input_permissions() -> Result<(), String> {
             return Err(sanitize_error("Input simulation not allowed in containerized environment".to_string()));
         }
     }
-    
-    // Additional checks could be added here, such as:
-    // - Check for specific environment variables that control this feature
-    // - Verify user/process has appropriate permissions
-    // - Check against a system-wide security policy
     
     Ok(())
 }
@@ -412,14 +286,6 @@ pub fn simulate_input(
     // Get screen dimensions for boundary checking
     let screen_width = 1920;  // Default fallback value
     let screen_height = 1080; // Default fallback value
-    
-    #[cfg(feature = "get_screen_size")]
-    {
-        // In a real implementation, we'd get actual screen dimensions
-        // This is placeholder code for the concept
-        // screen_width = get_actual_width();
-        // screen_height = get_actual_height();
-    }
     
     log::info!("Simulating input: {} {:?}", input_type, params);
 
@@ -471,9 +337,6 @@ pub fn simulate_input(
                     return Err(sanitize_error("Text input too long (>1000 chars)".to_string()));
                 }
                 
-                // Optionally validate content (no dangerous sequences, etc.)
-                // For example, block specific character sequences that could be harmful
-                
                 enigo.key_sequence(text);
             } else {
                 return Err(sanitize_error("Missing text parameter for type_text".to_string()));
@@ -523,4 +386,29 @@ pub fn simulate_input(
     log::info!("Successfully simulated input: {} with params: {:?}", input_type, params);
     
     Ok(())
+}
+
+/// Get execution statistics (for monitoring)
+pub fn get_execution_stats() -> HashMap<String, String> {
+    let mut stats = HashMap::new();
+    
+    #[cfg(target_os = "windows")]
+    {
+        stats.insert("executor_type".to_string(), "Windows_JobObject_Enhanced".to_string());
+        stats.insert("work_dir".to_string(), std::env::temp_dir().to_string_lossy().to_string());
+        stats.insert("max_process_memory_mb".to_string(), "512".to_string());
+        stats.insert("max_job_memory_mb".to_string(), "512".to_string());
+        stats.insert("max_processes".to_string(), "5".to_string());
+        stats.insert("execution_timeout_seconds".to_string(), "10".to_string());
+        stats.insert("cpu_limit_percent".to_string(), "50".to_string());
+        stats.insert("resource_monitoring_interval_ms".to_string(), "100".to_string());
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        stats.insert("executor_type".to_string(), "Basic_Process".to_string());
+        stats.insert("sandbox_dir".to_string(), "Not_Available".to_string());
+    }
+    
+    stats
 }

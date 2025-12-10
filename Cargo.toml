@@ -4,6 +4,7 @@ members = [
     "orchestrator-service-rs",
     "llm-service-rs",
     "tools-service-rs",
+    "tool-sdk",
     "safety-service-rs",
     "logging-service-rs",
     "data-router-rs",

@@ -1,0 +1,52 @@
+[package]
+name = "phoenix-orch-monolith-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Converted service crates
+agent-registry = { path = "../agent-registry-rs" }
+api-gateway = { path = "../api-gateway-rs" }
+auth-service = { path = "../auth-service-rs" }
+body-kb = { path = "../body-kb-rs" }
+context-manager = { path = "../context-manager-rs" }
+curiosity-engine = { path = "../curiosity-engine-rs" }
+data-router = { path = "../data-router-rs" }
+executor = { path = "../executor-rs" }
+
+# Windows Service
+windows-service = "0.6"
+
+# Async Runtime
+tokio = { version = "1.48.0", features = ["full"] }
+
+# Logging
+log = "0.4.29"
+env_logger = "0.11"
+windows-eventlog = "0.5"
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Vault Integration
+vaultrs = "0.7"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+once_cell = "1.20"
+
+# Monitoring
+metrics = "0.20"
+metrics-exporter-prometheus = "0.11"
+
+[lib]
+name = "phoenix_orch"
+path = "src/lib.rs"
+
+[[bin]]
+name = "phoenix-orch-service"
+path = "src/main.rs"

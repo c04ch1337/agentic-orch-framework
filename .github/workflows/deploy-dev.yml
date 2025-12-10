@@ -96,21 +96,6 @@ jobs:
         if: always()
         with:
           sarif_file: 'trivy-results-${{ matrix.service }}.sarif'
-          category: trivy-${{ matrix.service }}
-
-  deploy:
-    name: Deploy to Dev Environment
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
-      
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-        
-      - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         
       - name: Configure AWS credentials

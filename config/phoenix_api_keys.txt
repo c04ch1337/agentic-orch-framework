@@ -1,0 +1,22 @@
+# Phoenix AGI System API Keys
+# Format: One key per line
+# Lines starting with # are comments
+
+# Default system keys
+phoenix-default-key-2024
+phoenix-admin-key-secure
+phoenix-service-key-internal
+
+# Development keys (remove in production)
+dev-test-key-001
+dev-test-key-002
+
+# Service-specific keys
+orchestrator-service-key
+llm-service-key
+kb-service-key
+executor-service-key
+
+# External client keys (add client-specific keys here)
+# client-001-prod-key
+# client-002-staging-key

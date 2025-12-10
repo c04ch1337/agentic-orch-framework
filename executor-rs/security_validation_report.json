@@ -1,0 +1,104 @@
+{
+  "timestamp": "2025-12-09T22:27:15.212678",
+  "statistics": {
+    "total": 18,
+    "passed": 8,
+    "failed": 1,
+    "partial": 3,
+    "warnings": 6,
+    "errors": 0,
+    "pass_rate": 44.44444444444444
+  },
+  "results": {
+    "Security Boundary": [
+      [
+        "Low Integrity Level",
+        "PARTIAL"
+      ],
+      [
+        "Parent directory traversal",
+        "PASS"
+      ],
+      [
+        "Direct path outside sandbox",
+        "PASS"
+      ],
+      [
+        "System directory access",
+        "PASS"
+      ],
+      [
+        "Working Directory Enforcement",
+        "WARN"
+      ]
+    ],
+    "Resource Limits": [
+      [
+        "Memory Limit (100MB)",
+        "WARN"
+      ],
+      [
+        "Execution Timeout (30s)",
+        "PASS"
+      ],
+      [
+        "Process Count Limit (5)",
+        "PASS"
+      ]
+    ],
+    "Output Capture": [
+      [
+        "Basic Output Capture",
+        "PARTIAL"
+      ],
+      [
+        "Large Output Handling",
+        "WARN"
+      ]
+    ],
+    "Process Lifecycle": [
+      [
+        "Normal Termination",
+        "WARN"
+      ],
+      [
+        "Job Object Management",
+        "PASS"
+      ],
+      [
+        "Process Watchdog",
+        "PASS"
+      ]
+    ],
+    "Error Handling": [
+      [
+        "Invalid Command Handling",
+        "PASS"
+      ],
+      [
+        "Resource Exceeded Handling",
+        "WARN"
+      ],
+      [
+        "Error Sanitization",
+        "WARN"
+      ]
+    ],
+    "Integration": [
+      [
+        "Service Availability",
+        "FAIL"
+      ],
+      [
+        "Concurrent Execution",
+        "PARTIAL"
+      ]
+    ]
+  },
+  "critical_failures": [
+    "Service Availability"
+  ],
+  "production_ready": "NO",
+  "justification": "Critical security controls need improvement before production deployment.",
+  "severity": "HIGH"
+}

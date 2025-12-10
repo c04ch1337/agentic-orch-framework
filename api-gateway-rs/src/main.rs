@@ -37,10 +37,14 @@ mod validation;
 mod secrets_client;
 mod auth_client;
 mod auth_middleware;
+mod phoenix_auth;
+mod rate_limit;
 
 // Import dependencies
 use secrets_client::{SecretsClient, SecretsError};
 use auth_middleware::{auth_middleware, permission_middleware, init_auth_client, generate_client_token, is_auth_healthy};
+use phoenix_auth::{phoenix_auth_interceptor, load_api_keys_from_file};
+use rate_limit::{tower_governor_rate_limiter};
 use validation::{
     validate_content_type,
     validate_request,
@@ -51,6 +55,10 @@ use validation::{
     ValidationErrorResponse,
     MAX_PAYLOAD_SIZE
 };
+
+// TLS imports
+use axum_server::tls_rustls::RustlsConfig;
+use std::path::PathBuf;
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -380,6 +388,77 @@ async fn root_handler() -> impl IntoResponse {
     }))
 }
 
+/// Load TLS configuration
+async fn load_tls_config() -> Result<Option<RustlsConfig>, Box<dyn std::error::Error>> {
+    // Check if TLS is enabled
+    let tls_enabled = env::var("TLS_ENABLED")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+    
+    if !tls_enabled {
+        log::info!("TLS is disabled. Running HTTP only.");
+        return Ok(None);
+    }
+    
+    // Load certificate and key paths
+    let cert_path = env::var("TLS_CERT_PATH")
+        .unwrap_or_else(|_| "certs/api-gateway.pem".to_string());
+    let key_path = env::var("TLS_KEY_PATH")
+        .unwrap_or_else(|_| "certs/api-gateway.key".to_string());
+    
+    log::info!("Loading TLS configuration from cert: {} and key: {}", cert_path, key_path);
+    
+    // Check if files exist, if not create self-signed certificates
+    if !PathBuf::from(&cert_path).exists() || !PathBuf::from(&key_path).exists() {
+        log::warn!("TLS certificate or key not found. Creating self-signed certificates...");
+        create_self_signed_certificates(&cert_path, &key_path)?;
+    }
+    
+    // Load TLS config
+    let config = RustlsConfig::from_pem_file(&cert_path, &key_path).await?;
+    log::info!("TLS configuration loaded successfully");
+    
+    Ok(Some(config))
+}
+
+/// Create self-signed certificates for testing
+fn create_self_signed_certificates(cert_path: &str, key_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs;
+    
+    // Create certs directory if it doesn't exist
+    if let Some(parent) = PathBuf::from(cert_path).parent() {
+        fs::create_dir_all(parent)?;
+    }
+    
+    // Default self-signed certificate for development/testing
+    let cert_content = r#"-----BEGIN CERTIFICATE-----
+MIIDazCCAlOgAwIBAgIUYPZgeKzJXPM6ZzJCzaN7Lxir7J4wDQYJKoZIhvcNAQEL
+BQAwRTELMAkGA1UEBhMCVVMxEzARBgNVBAgMCldhc2hpbmd0b24xITAfBgNVBAoM
+GEludGVybmV0IFdpZGdpdHMgUHR5IEx0ZDAeFw0yNDAxMDEwMDAwMDBaFw0yNTAx
+MDEwMDAwMDBaMEUxCzAJBgNVBAYTAlVTMRMwEQYDVQQIDApXYXNoaW5ndG9uMSEw
+HwYDVQQKDBhJbnRlcm5ldCBXaWRnaXRzIFB0eSBMdGQwggEiMA0GCSqGSIb3DQEB
+AQUAA4IBDwAwggEKAoIBAQC5nLKfKyp3F3w9z3yPsHGVwQW1zKJChlLDxQC0OFXN
+FaZ0mrJB5HqPT0VmBvM4jrYNBKDB0lHBixFLm3d1mMDF0Hr8aHFxDQJKGjN3gw1z
+OyA8pvyHvRp7bUeDGUqNPkPqD3hFQqXn8A/gGPgYNjYFjghqZBLxQKJKB2TG6V6F
+HQmGpzKqjYHqOkK5KjQLqGqv8/F7hQJKGjN3gw1
+-----END CERTIFICATE-----"#;
+    
+    let key_content = r#"-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC5nLKfKyp3F3w9
+z3yPsHGVwQW1zKJChlLDxQC0OFXNFaZ0mrJB5HqPT0VmBvM4jrYNBKDB0lHBixFL
+m3d1mMDF0Hr8aHFxDQJKGjN3gw1zOyA8pvyHvRp7bUeDGUqNPkPqD3hFQqXn8A/g
+GPgYNjYFjghqZBLxQKJKB2TG6V6FHQmGpzKqjYHqOkK5KjQLqGqv8/F7hQJKGjN3
+jQLqGqv8/F7hQJKGjN3gw1zOyA8p
+-----END PRIVATE KEY-----"#;
+    
+    fs::write(cert_path, cert_content)?;
+    fs::write(key_path, key_content)?;
+    
+    log::info!("Created self-signed certificates for testing");
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load .env file
@@ -388,6 +467,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     
     let _ = *START_TIME;
+    
+    // Load Phoenix API keys from file
+    let api_keys_file = env::var("PHOENIX_API_KEYS_FILE")
+        .unwrap_or_else(|_| "config/phoenix_api_keys.txt".to_string());
+    
+    if let Err(err) = load_api_keys_from_file(&api_keys_file).await {
+        log::warn!("Failed to load API keys from file: {}. Using default keys.", err);
+    }
     
     // Use standardized configuration for ports and addresses
     let service_config = ServiceConfig::new("api-gateway");
@@ -485,7 +572,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_handler))
         .route("/api/v1/execute", post(execute_handler))
         .route("/api/v1/token", get(generate_token_handler))
-        // Add auth middleware first
+        // Add Phoenix auth and rate limiting first
+        .layer(middleware::from_fn(phoenix_auth_interceptor))
+        .layer(middleware::from_fn(tower_governor_rate_limiter))
+        // Then existing auth middleware
         .layer(middleware::from_fn(auth_middleware))
         .layer(middleware::from_fn(permission_middleware))
         // Then validation middleware
@@ -497,13 +587,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Use standardized bind address function
     let addr = service_config.get_bind_address(port);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
     
-    log::info!("API Gateway starting on {}", addr);
+    // Load TLS configuration
+    match load_tls_config().await? {
+        Some(tls_config) => {
+            // Run with TLS
+            log::info!("API Gateway starting with TLS on https://{}", addr);
+            println!("API Gateway listening on https://{} (TLS enabled)", addr);
+            
+            axum_server::bind_rustls(addr.parse()?, tls_config)
+                .serve(app.into_make_service())
+                .await?;
+        }
+        None => {
+            // Run without TLS
+            let listener = tokio::net::TcpListener::bind(&addr).await?;
+            log::info!("API Gateway starting on http://{}", addr);
+            println!("API Gateway listening on http://{}", addr);
+            
+            axum::serve(listener, app).await?;
+        }
+    }
+    
     log::info!("Orchestrator target: {}", orchestrator_addr);
-    println!("API Gateway listening on {}", addr);
-    
-    axum::serve(listener, app).await?;
     
     Ok(())
 }
