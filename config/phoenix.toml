@@ -1,0 +1,395 @@
+# Phoenix ORCH: The Ashen Guard Edition - Centralized Configuration
+# This is the single source of truth for all non-sensitive configuration.
+# Secrets (API keys, tokens, passwords) are stored in HashiCorp Vault.
+
+# ============================================================================
+# SYSTEM CONFIGURATION
+# ============================================================================
+[system]
+# Environment: development, staging, production
+environment = "development"
+
+# Global log level: trace, debug, info, warn, error
+log_level = "info"
+
+# Default host for all services
+service_host = "localhost"
+
+# Enable distributed tracing
+enable_tracing = true
+
+# Enable Prometheus metrics
+enable_metrics = true
+
+# Enable service recovery and resilience features
+enable_recovery = true
+
+# ============================================================================
+# VAULT CONFIGURATION
+# ============================================================================
+[vault]
+# Vault server address
+address = "http://localhost:8200"
+
+# Vault token is loaded from VAULT_TOKEN environment variable
+# or Windows Credential Manager for security
+
+# Secret mount path prefix
+secret_mount = "phoenix"
+
+# Token TTL in seconds (1 hour default)
+token_ttl = 3600
+
+# Enable automatic secret rotation
+auto_rotate_secrets = true
+
+# Secret rotation interval in seconds (24 hours)
+rotation_interval = 86400
+
+# ============================================================================
+# SERVICE PORTS
+# ============================================================================
+[services]
+# Core orchestration
+orchestrator = 50051
+data_router = 50052
+
+# LLM and AI
+llm = 50053
+
+# Tools and execution
+tools = 50054
+executor = 50062
+
+# Safety and security
+safety = 50055
+secrets = 50080
+auth = 50090
+
+# Logging and monitoring
+logging = 50056
+
+# Knowledge bases
+mind_kb = 50057
+body_kb = 50058
+heart_kb = 50059
+social_kb = 50060
+soul_kb = 50061
+persistence_kb = 50063
+
+# Cognitive services
+context_manager = 50064
+reflection = 50065
+curiosity_engine = 50070
+
+# Scheduling and agents
+scheduler = 50066
+agent_registry = 50067
+red_team = 50068
+blue_team = 50069
+
+# API Gateway
+api_gateway = 8282
+
+# ============================================================================
+# LLM CONFIGURATION
+# ============================================================================
+[llm]
+# LLM Provider: openai, anthropic, openrouter, local
+provider = "openrouter"
+
+# API URL for the LLM provider
+api_url = "https://openrouter.ai/api/v1/chat/completions"
+
+# Model to use
+model = "anthropic/claude-3.5-sonnet"
+
+# API key is stored in Vault at: phoenix/llm/api_key
+
+# Retry configuration
+max_retries = 3
+initial_retry_delay_ms = 1000
+max_retry_delay_ms = 30000
+
+# Request timeout in seconds
+request_timeout_secs = 120
+
+# Max tokens per request
+max_tokens = 4096
+
+# Temperature for generation
+temperature = 0.7
+
+# ============================================================================
+# AGENT CONFIGURATION
+# ============================================================================
+[agent]
+# Agent name
+name = "PHOENIX ORCH: The Ashen Guard Edition"
+
+# Agent purpose
+purpose = "To provide safe, helpful, and accurate assistance while maintaining robust security and resilience"
+
+# Agent version
+version = "1.0.0"
+
+# ============================================================================
+# STORAGE CONFIGURATION
+# ============================================================================
+
+# Qdrant Vector Database
+[storage.qdrant]
+url = "http://localhost:6334"
+collection = "phoenix_mind"
+vector_size = 1536
+distance_metric = "Cosine"
+
+# Enable collection creation if it doesn't exist
+auto_create_collection = true
+
+# Qdrant API key (if required) is stored in Vault at: phoenix/storage/qdrant_api_key
+
+# PostgreSQL Database
+[storage.postgres]
+# Connection string is stored in Vault at: phoenix/storage/postgres_url
+host = "localhost"
+port = 5432
+database = "phoenix_orch"
+max_connections = 10
+connection_timeout_secs = 30
+
+# Redis Cache
+[storage.redis]
+# Connection string is stored in Vault at: phoenix/auth/redis_url
+host = "localhost"
+port = 6379
+database = 0
+connection_timeout_secs = 5
+max_connections = 10
+
+# ============================================================================
+# KNOWLEDGE BASE CONFIGURATION
+# ============================================================================
+
+# Mind KB (Long-term memory)
+[mind_kb]
+# Memory decay configuration
+decay_half_life_days = 30
+decay_interval_secs = 3600
+
+# Maximum memories to retrieve per query
+max_retrieval_count = 10
+
+# Minimum relevance score for retrieval
+min_relevance_score = 0.7
+
+# Body KB (Physical/sensor data)
+[body_kb]
+# Sensor data retention in days
+retention_days = 90
+
+# Sensor polling interval in seconds
+polling_interval_secs = 60
+
+# Heart KB (Emotional/sentiment data)
+[heart_kb]
+# Sentiment analysis model
+sentiment_model = "vader"
+
+# Emotion tracking window in hours
+emotion_window_hours = 24
+
+# Social KB (Interaction data)
+[social_kb]
+# Interaction retention in days
+retention_days = 180
+
+# Max interactions per session
+max_interactions_per_session = 1000
+
+# Soul KB (Values and ethics)
+[soul_kb]
+# Ethics model version
+ethics_model_version = "1.0"
+
+# Value alignment check frequency
+alignment_check_frequency_secs = 300
+
+# Persistence KB (Snapshots and rollback)
+[persistence_kb]
+# Snapshot interval in seconds (1 hour)
+snapshot_interval_secs = 3600
+
+# Maximum snapshots to retain
+max_snapshots = 168  # 1 week of hourly snapshots
+
+# Snapshot compression
+enable_compression = true
+
+# ============================================================================
+# SAFETY CONFIGURATION
+# ============================================================================
+[safety]
+# Enable safety checks
+enabled = true
+
+# Threat detection sensitivity: low, medium, high
+threat_sensitivity = "high"
+
+# Additional blocked keywords (comma-separated)
+additional_blocked_keywords = []
+
+# Additional blocked operations (comma-separated)
+additional_blocked_operations = []
+
+# Max request size in bytes
+max_request_size_bytes = 1048576  # 1 MB
+
+# Rate limiting
+rate_limit_requests_per_minute = 60
+
+# ============================================================================
+# EXECUTOR CONFIGURATION
+# ============================================================================
+[executor]
+# Enable Windows Job Objects for process isolation
+enable_job_objects = true
+
+# Resource limits
+max_cpu_percent = 50
+max_memory_mb = 512
+max_processes = 10
+max_execution_time_secs = 300
+
+# Python execution
+python_executable = "python"
+enable_python_sandbox = true
+
+# Shell command whitelist
+allowed_shell_commands = [
+    "echo", "dir", "ls", "pwd", "cat", "type",
+    "grep", "findstr", "head", "tail", "wc"
+]
+
+# ============================================================================
+# CONTEXT MANAGER CONFIGURATION
+# ============================================================================
+[context_manager]
+# System prompts for different agents
+[context_manager.prompts]
+master = """You are PHOENIX ORCH: The Ashen Guard Edition, a highly capable AI assistant focused on safety, accuracy, and helpfulness."""
+
+red_team = """You are the RED TEAM SHADOW agent, an ethical adversary focused on vulnerability scanning and attack simulation."""
+
+blue_team = """You are the BLUE TEAM SENTINEL agent, an autonomous defense system focused on threat containment and system hardening."""
+
+# ============================================================================
+# REFLECTION SERVICE CONFIGURATION
+# ============================================================================
+[reflection]
+# Enable metacognition
+enable_metacognition = true
+
+# Reflection interval in seconds
+reflection_interval_secs = 300
+
+# Max reflection depth
+max_reflection_depth = 3
+
+# ============================================================================
+# SCHEDULER CONFIGURATION
+# ============================================================================
+[scheduler]
+# Enable CRON scheduling
+enabled = true
+
+# Max concurrent tasks
+max_concurrent_tasks = 10
+
+# Task timeout in seconds
+task_timeout_secs = 3600
+
+# ============================================================================
+# API GATEWAY CONFIGURATION
+# ============================================================================
+[api_gateway]
+# Enable TLS
+enable_tls = false
+
+# TLS certificate and key paths (if enabled)
+tls_cert_path = "./certs/server.crt"
+tls_key_path = "./certs/server.key"
+
+# Enable mTLS (mutual TLS)
+enable_mtls = false
+
+# CORS configuration
+enable_cors = true
+cors_allowed_origins = ["http://localhost:3000", "http://localhost:8282"]
+
+# Rate limiting
+rate_limit_requests_per_minute = 100
+rate_limit_burst = 20
+
+# Request validation
+enable_request_validation = true
+max_request_body_size_bytes = 10485760  # 10 MB
+
+# API keys file path
+api_keys_file = "./config/phoenix_api_keys.txt"
+
+# ============================================================================
+# AUTH SERVICE CONFIGURATION
+# ============================================================================
+[auth]
+# JWT configuration
+jwt_issuer = "phoenix-orch"
+jwt_expiration_secs = 3600  # 1 hour
+
+# JWT secret is stored in Vault at: phoenix/auth/jwt_secret
+
+# Token refresh
+enable_token_refresh = true
+refresh_token_expiration_secs = 604800  # 7 days
+
+# Session management
+session_timeout_secs = 1800  # 30 minutes
+max_sessions_per_user = 5
+
+# ============================================================================
+# MONITORING AND OBSERVABILITY
+# ============================================================================
+[monitoring]
+# Prometheus metrics endpoint
+metrics_port = 9090
+metrics_path = "/metrics"
+
+# Health check configuration
+health_check_interval_secs = 30
+health_check_timeout_secs = 5
+
+# Distributed tracing
+[monitoring.tracing]
+enabled = true
+endpoint = "http://localhost:4317"
+service_name = "phoenix-orch"
+sample_rate = 1.0
+
+# ============================================================================
+# FEATURE FLAGS
+# ============================================================================
+[features]
+# Enable experimental features
+enable_experimental = false
+
+# Enable curiosity engine
+enable_curiosity = true
+
+# Enable multi-agent collaboration
+enable_multi_agent = true
+
+# Enable emergency resilience features
+enable_emergency_resilience = true
+
+# Enable automatic recovery
+enable_auto_recovery = true

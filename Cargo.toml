@@ -27,6 +27,7 @@ members = [
     "config-rs",
     "log-analyzer-rs",
     "curiosity-engine-rs",
+    "shared-types-rs",
 ]
 
 [profile.release]
