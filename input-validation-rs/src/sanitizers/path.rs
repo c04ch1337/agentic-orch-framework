@@ -112,7 +112,7 @@ pub fn confine_path(path: &str, base_dir: &str) -> SanitizeResult<String> {
     let path_str = abs_path.to_string_lossy();
     let base_str = abs_base.to_string_lossy();
     
-    if path_str.starts_with(&base_str) {
+    if path_str.starts_with(base_str.as_ref()) {
         SanitizeResult::unmodified(path.to_string())
     } else {
         // If not, we'll try to make a path relative to the base

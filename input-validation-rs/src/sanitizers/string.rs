@@ -229,15 +229,14 @@ pub fn to_lowercase(input: &str) -> SanitizeResult<String> {
 pub fn standard_string_sanitize(input: &str) -> SanitizeResult<String> {
     use super::chain_sanitizers;
     
-    chain_sanitizers(
-        input.to_string(),
-        vec![
-            |s| remove_control_chars(&s),
-            |s| normalize_unicode(&s),
-            |s| trim_whitespace(&s),
-            |s| normalize_line_endings(&s),
-        ],
-    )
+    let sanitizers: Vec<Box<dyn Fn(String) -> SanitizeResult<String>>> = vec![
+        Box::new(|s| remove_control_chars(&s)),
+        Box::new(|s| normalize_unicode(&s)),
+        Box::new(|s| trim_whitespace(&s)),
+        Box::new(|s| normalize_line_endings(&s)),
+    ];
+    
+    chain_sanitizers(input.to_string(), sanitizers)
 }
 
 #[cfg(test)]
