@@ -36,9 +36,12 @@ use agi_core::{
     HealthResponse,
 };
 
-/// Configuration file structure for agent_registry.toml
+//// Configuration file structure for agent_registry.toml
 #[derive(Debug, Deserialize)]
 struct AgentConfig {
+    /// List of statically configured agents. Defaults to empty so the
+    /// registry can start cleanly when no agents are defined.
+    #[serde(default)]
     agent: Vec<AgentDefinition>,
 }
 

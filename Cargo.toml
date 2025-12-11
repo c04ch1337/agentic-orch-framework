@@ -19,8 +19,6 @@ members = [
     "reflection-rs",
     "scheduler-rs",
     "agent-registry-rs",
-    "red-team-rs",
-    "blue-team-rs",
     "api-gateway-rs",
     "secrets-service-rs",
     "input-validation-rs",

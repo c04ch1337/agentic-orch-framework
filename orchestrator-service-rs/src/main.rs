@@ -47,9 +47,189 @@ use agi_core::{
     EthicsCheckRequest,
     EthicsCheckResponse,
     ContextRequest,
+    ToolRequest,
+    ToolResponse,
 };
 
-// 3. Define the Orchestrator Server Structure
+ // 3. Orchestration planning and error types
+
+#[derive(Debug, serde::Deserialize)]
+struct Plan {
+    steps: Vec<PlanStep>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PlanStep {
+    id: String,
+    action: String,                 // "llm", "kb", "tools", "safety", "final"
+    description: String,
+    #[serde(default)]
+    target_service: Option<String>,
+    #[serde(default)]
+    tool_name: Option<String>,
+    #[serde(default)]
+    tool_parameters: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone)]
+enum OrchestrationStage {
+    ContextEnrichment,
+    Planning,
+    Ethics,
+    Safety,
+    ToolsExecution,
+    Execution,
+    Reflection,
+}
+
+#[derive(Debug)]
+struct OrchestrationError {
+    stage: OrchestrationStage,
+    target_service: String,
+    error_type: String,
+    error_message: String,
+    retryable: bool,
+}
+
+fn classify_status_error(
+    stage: OrchestrationStage,
+    target_service: &str,
+    status: &tonic::Status,
+) -> OrchestrationError {
+    let code = status.code();
+    let retryable = matches!(
+        code,
+        tonic::Code::Unavailable
+            | tonic::Code::DeadlineExceeded
+            | tonic::Code::ResourceExhausted
+    );
+
+    OrchestrationError {
+        stage,
+        target_service: target_service.to_string(),
+        error_type: format!("{:?}", code),
+        error_message: status.message().to_string(),
+        retryable,
+    }
+}
+
+#[derive(serde::Serialize)]
+struct CriticalFailureLog {
+    event_type: String,         // always "CRITICAL_FAILURE"
+    service: String,            // "orchestrator-service"
+    stage: String,              // e.g. "ToolsExecution"
+    request_id: String,
+    phoenix_session_id: String,
+    target_service: String,     // "tools-service", "llm-service", etc.
+    error_type: String,         // e.g. "DEADLINE_EXCEEDED"
+    error_message: String,
+    retryable: bool,
+    tool_name: Option<String>,
+    metadata: std::collections::HashMap<String, String>,
+}
+
+fn log_critical_failure_and_build_response(
+    err: OrchestrationError,
+    req_data: &ProtoRequest,
+    current_tool_name: Option<String>,
+) -> Result<Response<AgiResponse>, Status> {
+    let log_event = CriticalFailureLog {
+        event_type: "CRITICAL_FAILURE".to_string(),
+        service: "orchestrator-service".to_string(),
+        stage: format!("{:?}", err.stage),
+        request_id: req_data.id.clone(),
+        phoenix_session_id: req_data.id.clone(),
+        target_service: err.target_service.clone(),
+        error_type: err.error_type.clone(),
+        error_message: err.error_message.clone(),
+        retryable: err.retryable,
+        tool_name: current_tool_name.clone(),
+        metadata: req_data.metadata.clone(),
+    };
+
+    if let Ok(json) = serde_json::to_string(&log_event) {
+        log::error!("{}", json);
+    } else {
+        log::error!(
+            "CRITICAL_FAILURE: stage={:?}, target_service={}, error_type={}, error_message={}",
+            err.stage,
+            err.target_service,
+            err.error_type,
+            err.error_message
+        );
+    }
+
+    let stage_str = format!("{:?}", err.stage);
+
+    let (final_answer, execution_plan, routed_service) = match err.stage {
+        OrchestrationStage::ToolsExecution => {
+            let tool_name_display = current_tool_name
+                .clone()
+                .unwrap_or_else(|| "code_gen".to_string());
+
+            let final_answer = format!(
+"I attempted to use the code tools to complete your request, but the code execution environment did not respond in time or reported an internal error. The last tool I called was {}. No unsafe or partial code was executed.
+
+Please try again later or simplify your request so that I can answer without running tools.",
+                tool_name_display
+            );
+
+            let execution_plan = format!(
+"Execution Plan:
+1. Enriched context via Context Manager.
+2. Planned steps with LLM via Data Router.
+3. Verified ethics via Soul-KB.
+4. Validated request with Safety Service.
+5. Attempted tools execution [FAILED at stage {:?}, target: {}, error_type: {}].
+
+Status: 502
+Routed To: {}
+Error: {}",
+                err.stage,
+                err.target_service,
+                err.error_type,
+                err.target_service,
+                err.error_message
+            );
+
+            (final_answer, execution_plan, err.target_service.clone())
+        }
+        _ => {
+            let final_answer = format!(
+                "I attempted to complete your request, but a downstream dependency failed during the {} stage while calling {}. Please try again later.",
+                stage_str,
+                err.target_service,
+            );
+
+            let execution_plan = format!(
+"Execution Plan:
+1. Enriched context via Context Manager.
+2. Planned steps with LLM via Data Router.
+3. Verified ethics via Soul-KB.
+4. Validated request with Safety Service.
+5. Attempted execution [FAILED at stage {:?}, target: {}, error_type: {}, message: {}].",
+                err.stage,
+                err.target_service,
+                err.error_type,
+                err.error_message
+            );
+
+            (final_answer, execution_plan, err.target_service.clone())
+        }
+    };
+
+    let agi_response = AgiResponse {
+        final_answer,
+        execution_plan,
+        routed_service,
+        phoenix_session_id: req_data.id.clone(),
+        output_artifact_urls: Vec::new(),
+    };
+
+    Ok(Response::new(agi_response))
+}
+
+// 4. Define the Orchestrator Server Structure
 // This struct will hold the state and implement the gRPC trait.
 /// Agent information returned from find_agent_by_capability
 #[derive(Debug, Clone)]
@@ -409,11 +589,19 @@ impl OrchestratorService for OrchestratorServer {
         log::info!("Calling LLM Service for planning via Data Router");
         let planning_response = router_client
             .route(tonic::Request::new(route_request))
-            .await
-            .map_err(|e| {
-                log::error!("Data Router error during planning: {}", e);
-                Status::internal(format!("Planning failed: {}", e))
-            })?;
+            .await;
+
+        let planning_response = match planning_response {
+            Ok(resp) => resp,
+            Err(status) => {
+                let err = classify_status_error(
+                    OrchestrationStage::Planning,
+                    "llm-service",
+                    &status,
+                );
+                return log_critical_failure_and_build_response(err, &req_data, None);
+            }
+        };
 
         let planning_data = planning_response.into_inner();
         let plan_text = if let Some(plan_resp) = planning_data.response {
@@ -424,6 +612,26 @@ impl OrchestratorService for OrchestratorServer {
         };
 
         log::info!("Planning complete. Plan: {}", plan_text);
+
+        let parsed_plan: Option<Plan> = serde_json::from_str(&plan_text).ok();
+
+        struct ExecutionContext {
+            kb_notes: Vec<String>,
+            tool_results: Vec<String>,
+            llm_intermediate_answers: Vec<String>,
+        }
+
+        let mut exec_ctx = ExecutionContext {
+            kb_notes: Vec::new(),
+            tool_results: Vec::new(),
+            llm_intermediate_answers: Vec::new(),
+        };
+
+        let tool_preference = req_data
+            .metadata
+            .get("tool_preference")
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_else(|| "auto".to_string());
 
         // Step 1.5: Ethics Check - Verify plan with Soul-KB
         log::info!("Verifying ethics with Soul-KB");
@@ -501,11 +709,19 @@ impl OrchestratorService for OrchestratorServer {
 
         let safety_response = router_client
             .route(tonic::Request::new(safety_route_request))
-            .await
-            .map_err(|e| {
-                log::error!("Safety Service error: {}", e);
-                Status::internal(format!("Safety validation failed: {}", e))
-            })?;
+            .await;
+
+        let safety_response = match safety_response {
+            Ok(resp) => resp,
+            Err(status) => {
+                let err = classify_status_error(
+                    OrchestrationStage::Safety,
+                    "safety-service",
+                    &status,
+                );
+                return log_critical_failure_and_build_response(err, &req_data, None);
+            }
+        };
 
         let safety_data = safety_response.into_inner();
         if let Some(safety_resp) = safety_data.response {
@@ -525,7 +741,104 @@ impl OrchestratorService for OrchestratorServer {
             }
         }
 
-        // Phase 3: Execution - Route the original request to the target service
+        // Phase 3: Tools execution (optional, driven by plan)
+        if let Some(plan) = &parsed_plan {
+            for step in &plan.steps {
+                if step.action == "tools" && tool_preference != "disable" {
+                    let tool_name = step
+                        .tool_name
+                        .clone()
+                        .unwrap_or_else(|| "default_tool".to_string());
+
+                    let mut parameters = step.tool_parameters.clone();
+                    parameters.insert("user_query".to_string(), user_query.to_string());
+                    parameters.insert("step_description".to_string(), step.description.clone());
+                    parameters.insert("request_id".to_string(), req_data.id.clone());
+
+                    let tool_request = ToolRequest {
+                        tool_name: tool_name.clone(),
+                        parameters,
+                    };
+
+                    let mut tool_payload = Vec::new();
+                    tool_request
+                        .encode(&mut tool_payload)
+                        .map_err(|e| Status::internal(format!("Failed to encode ToolRequest: {}", e)))?;
+
+                    let mut metadata = req_data.metadata.clone();
+                    metadata.insert(
+                        "orchestration_stage".to_string(),
+                        "tools_execution".to_string(),
+                    );
+                    metadata.insert("plan_step_id".to_string(), step.id.clone());
+
+                    let tool_proto_request = ProtoRequest {
+                        id: format!("{}-tool-{}", req_data.id, step.id),
+                        service: "tools-service".to_string(),
+                        method: "ExecuteTool".to_string(),
+                        payload: tool_payload,
+                        metadata,
+                    };
+
+                    let route_request = RouteRequest {
+                        target_service: "tools-service".to_string(),
+                        request: Some(tool_proto_request),
+                    };
+
+                    let tool_route_response = router_client
+                        .route(tonic::Request::new(route_request))
+                        .await;
+
+                    let tool_route_response = match tool_route_response {
+                        Ok(resp) => resp,
+                        Err(status) => {
+                            let err = classify_status_error(
+                                OrchestrationStage::ToolsExecution,
+                                "tools-service",
+                                &status,
+                            );
+                            let current_tool_name = Some(tool_name.clone());
+                            return log_critical_failure_and_build_response(
+                                err,
+                                &req_data,
+                                current_tool_name,
+                            );
+                        }
+                    };
+
+                    let response = tool_route_response
+                        .into_inner()
+                        .response
+                        .ok_or_else(|| {
+                            Status::internal("Tools Service returned empty response")
+                        })?;
+
+                    let tool_response = ToolResponse::decode(response.payload.as_slice())
+                        .map_err(|e| {
+                            Status::internal(format!(
+                                "Failed to decode ToolResponse: {}",
+                                e
+                            ))
+                        })?;
+
+                    exec_ctx.tool_results.push(format!(
+                        "Step {} (tools: {}): success ({}).",
+                        step.id,
+                        tool_name,
+                        tool_response
+                            .result
+                            .split('\n')
+                            .next()
+                            .unwrap_or("generated result")
+                    ));
+
+                    // Also keep full tool result for potential future synthesis usage
+                    exec_ctx.tool_results.push(tool_response.result);
+                }
+            }
+        }
+
+        // Phase 4: Execution / Final synthesis
         // Determine target service from request, or use LLM if not specified
         let target_service = if req_data.service.is_empty() {
             // Default to LLM service for general queries
@@ -534,26 +847,112 @@ impl OrchestratorService for OrchestratorServer {
             req_data.service.clone()
         };
 
-        log::info!("Executing request via Data Router to target: {}", target_service);
+        log::info!(
+            "Executing request via Data Router to target: {} (plan_parsed={})",
+            target_service,
+            parsed_plan.is_some()
+        );
+
+        // Build execution request: enriched LLM prompt when a plan exists, otherwise fallback
+        let execution_request = if let Some(plan) = &parsed_plan {
+            let mut prompt = String::new();
+            prompt.push_str("You are the Orchestrator final synthesis agent.\n\n");
+            prompt.push_str("Original user query:\n");
+            prompt.push_str(&user_query);
+            prompt.push_str("\n\nExecution context:\n");
+
+            if !exec_ctx.kb_notes.is_empty() {
+                prompt.push_str("Knowledge base notes:\n");
+                for note in &exec_ctx.kb_notes {
+                    prompt.push_str("- ");
+                    prompt.push_str(note);
+                    prompt.push('\n');
+                }
+                prompt.push('\n');
+            }
+
+            if !exec_ctx.llm_intermediate_answers.is_empty() {
+                prompt.push_str("Intermediate LLM answers:\n");
+                for ans in &exec_ctx.llm_intermediate_answers {
+                    prompt.push_str("- ");
+                    prompt.push_str(ans);
+                    prompt.push('\n');
+                }
+                prompt.push('\n');
+            }
+
+            if !exec_ctx.tool_results.is_empty() {
+                prompt.push_str("Tool results:\n");
+                for tr in &exec_ctx.tool_results {
+                    prompt.push_str("- ");
+                    prompt.push_str(tr);
+                    prompt.push('\n');
+                }
+                prompt.push('\n');
+            }
+
+            prompt.push_str("Using the above context and tool outputs, provide a clear final answer to the user. ");
+            prompt.push_str("If tools executed code, briefly describe what was done and include the final code snippet where appropriate.\n");
+
+            let mut parameters = std::collections::HashMap::new();
+            parameters.insert(
+                "orchestration_mode".to_string(),
+                "plan_and_execute".to_string(),
+            );
+
+            let generate_req = GenerateRequest {
+                prompt,
+                parameters,
+            };
+
+            let mut buf = Vec::new();
+            generate_req
+                .encode(&mut buf)
+                .map_err(|e| {
+                    Status::internal(format!(
+                        "Failed to encode GenerateRequest for execution: {}",
+                        e
+                    ))
+                })?;
+
+            ProtoRequest {
+                id: format!("{}-final", req_data.id),
+                service: "llm-service".to_string(),
+                method: "generate_text".to_string(),
+                payload: buf,
+                metadata: req_data.metadata.clone(),
+            }
+        } else {
+            // Fallback to original execution behavior with the raw request
+            req_data.clone()
+        };
 
         // Create execution request
         let execution_route_request = RouteRequest {
             target_service: target_service.clone(),
-            request: Some(req_data.clone()),
+            request: Some(execution_request),
         };
 
         // Call Data Router Service for execution
         let execution_response = router_client
             .route(tonic::Request::new(execution_route_request))
-            .await
-            .map_err(|e| {
-                log::error!("Data Router Service error during execution: {}", e);
-                Status::internal(format!("Execution failed: {}", e))
-            })?;
+            .await;
+
+        let execution_response = match execution_response {
+            Ok(resp) => resp,
+            Err(status) => {
+                let err = classify_status_error(
+                    OrchestrationStage::Execution,
+                    &target_service,
+                    &status,
+                );
+                return log_critical_failure_and_build_response(err, &req_data, None);
+            }
+        };
 
         let execution_data = execution_response.into_inner();
 
-        // Phase 4: Response Aggregation - Build AgiResponse
+        // Phase 5: Response Aggregation - Build AgiResponse
         let mut output_artifacts = Vec::new();
         let final_answer;
         let execution_plan_details;
@@ -565,10 +964,24 @@ impl OrchestratorService for OrchestratorServer {
             // Extract the final answer from the execution response
             final_answer = String::from_utf8_lossy(&exec_resp.payload).to_string();
             
-            // Build comprehensive execution plan
+            // Build comprehensive execution plan, including any tool results
+            let mut plan_section = format!("Execution Plan:\n{}\n", plan_text);
+
+            if !exec_ctx.tool_results.is_empty() {
+                plan_section.push_str("\nTool Results:\n");
+                for tr in &exec_ctx.tool_results {
+                    plan_section.push_str("- ");
+                    plan_section.push_str(tr);
+                    plan_section.push('\n');
+                }
+            }
+
             execution_plan_details = format!(
-                "Execution Plan:\n{}\n\nStatus: {}\nRouted To: {}\nError: {}",
-                plan_text, exec_resp.status_code, routed_service, exec_resp.error
+                "{}\nStatus: {}\nRouted To: {}\nError: {}",
+                plan_section,
+                exec_resp.status_code,
+                routed_service,
+                exec_resp.error
             );
 
             // Log analyzer integration removed due to undefined ExecutionLog type in updated proto

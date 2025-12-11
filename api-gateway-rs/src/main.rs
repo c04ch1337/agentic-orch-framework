@@ -99,6 +99,24 @@ pub struct ExecuteResponse {
     pub output_artifact_urls: Vec<String>,
 }
 
+/// Determine whether this request should use PlanAndExecute orchestration.
+fn is_plan_and_execute(request: &ExecuteRequest) -> bool {
+    let method = request.method.to_ascii_lowercase();
+
+    let method_indicates_plan = matches!(
+        method.as_str(),
+        "plan_and_execute" | "orchestrated_chat"
+    );
+
+    let metadata_indicates_plan = request
+        .metadata
+        .get("orchestration_mode")
+        .map(|v| v.eq_ignore_ascii_case("plan_and_execute"))
+        .unwrap_or(false);
+
+    method_indicates_plan || metadata_indicates_plan
+}
+
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
     pub healthy: bool,
@@ -262,41 +280,84 @@ async fn execute_handler(
     
     match client_result {
         Ok(mut client) => {
-            let request_id = request.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-            
-            // Create gRPC request
+            let request_id = request
+                .id
+                .clone()
+                .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+            let is_plan = is_plan_and_execute(&request);
+
+            let service_for_plan = request
+                .metadata
+                .get("target_service")
+                .cloned()
+                // empty string means "orchestrator decides", which will default to llm-service
+                .unwrap_or_else(String::new);
+
             let proto_request = ProtoRequest {
                 id: request_id.clone(),
-                service: "orchestrator".to_string(),
+                service: if is_plan {
+                    service_for_plan
+                } else {
+                    "orchestrator".to_string()
+                },
                 method: request.method.clone(),
-                payload: request.payload.into_bytes(),
-                metadata: request.metadata,
+                payload: request.payload.clone().into_bytes(),
+                metadata: request.metadata.clone(),
             };
-            
-            // Call Orchestrator directly with Request
-            match client.process_request(tonic::Request::new(proto_request)).await {
-                Ok(response) => {
-                    let inner = response.into_inner();
-                    (
-                        StatusCode::OK,
-                        Json(ExecuteResponse {
-                            final_answer: inner.final_answer,
-                            execution_plan: inner.execution_plan,
-                            routed_service: inner.routed_service,
-                            phoenix_session_id: inner.phoenix_session_id,
-                            output_artifact_urls: inner.output_artifact_urls,
-                        }),
-                    ).into_response()
+
+            if is_plan {
+                match client.plan_and_execute(tonic::Request::new(proto_request)).await {
+                    Ok(response) => {
+                        let inner = response.into_inner();
+                        (
+                            StatusCode::OK,
+                            Json(ExecuteResponse {
+                                final_answer: inner.final_answer,
+                                execution_plan: inner.execution_plan,
+                                routed_service: inner.routed_service,
+                                phoenix_session_id: inner.phoenix_session_id,
+                                output_artifact_urls: inner.output_artifact_urls,
+                            }),
+                        ).into_response()
+                    }
+                    Err(e) => {
+                        log::error!("Orchestrator PlanAndExecute gRPC error: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("Orchestrator PlanAndExecute error: {}", e),
+                                code: 500,
+                            }),
+                        ).into_response()
+                    }
                 }
-                Err(e) => {
-                    log::error!("Orchestrator gRPC error: {}", e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(ErrorResponse {
-                            error: format!("Orchestrator error: {}", e),
-                            code: 500,
-                        }),
-                    ).into_response()
+            } else {
+                // existing ProcessRequest behavior
+                match client.process_request(tonic::Request::new(proto_request)).await {
+                    Ok(response) => {
+                        let inner = response.into_inner();
+                        (
+                            StatusCode::OK,
+                            Json(ExecuteResponse {
+                                final_answer: inner.final_answer,
+                                execution_plan: inner.execution_plan,
+                                routed_service: inner.routed_service,
+                                phoenix_session_id: inner.phoenix_session_id,
+                                output_artifact_urls: inner.output_artifact_urls,
+                            }),
+                        ).into_response()
+                    }
+                    Err(e) => {
+                        log::error!("Orchestrator gRPC error: {}", e);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("Orchestrator error: {}", e),
+                                code: 500,
+                            }),
+                        ).into_response()
+                    }
                 }
             }
         }

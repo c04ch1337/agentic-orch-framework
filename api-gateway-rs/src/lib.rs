@@ -46,7 +46,7 @@ pub struct ExecuteRequest {
     pub metadata: HashMap<String, String>,
 }
 
-/// Execute response body (JSON) - Using the unified AgiResponse schema
+ /// Execute response body (JSON) - Using the unified AgiResponse schema
 #[derive(Debug, Serialize)]
 pub struct ExecuteResponse {
     pub final_answer: String,
@@ -54,6 +54,24 @@ pub struct ExecuteResponse {
     pub routed_service: String,
     pub phoenix_session_id: String,
     pub output_artifact_urls: Vec<String>,
+}
+
+/// Determine whether this request should use PlanAndExecute orchestration.
+fn is_plan_and_execute(request: &ExecuteRequest) -> bool {
+    let method = request.method.to_ascii_lowercase();
+
+    let method_indicates_plan = matches!(
+        method.as_str(),
+        "plan_and_execute" | "orchestrated_chat"
+    );
+
+    let metadata_indicates_plan = request
+        .metadata
+        .get("orchestration_mode")
+        .map(|v| v.eq_ignore_ascii_case("plan_and_execute"))
+        .unwrap_or(false);
+
+    method_indicates_plan || metadata_indicates_plan
 }
 
 #[derive(Debug, Serialize)]
@@ -181,55 +199,114 @@ impl ApiGateway {
         headers: HeaderMap,
         Json(request): Json<ExecuteRequest>,
     ) -> impl IntoResponse {
-        // Implementation moved from main.rs
-        tracing::info!("Execute request: method={}, id={:?}", request.method, request.id);
-        
+        tracing::info!(
+            "Execute request: method={}, id={:?}",
+            request.method,
+            request.id
+        );
+
         // Connect to Orchestrator
         let client_result = tonic::transport::Channel::from_shared(state.orchestrator_addr.clone())
             .unwrap()
             .connect()
             .await;
-            
+
         match client_result {
             Ok(channel) => {
-                let request_id = request.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-                
+                let request_id = request
+                    .id
+                    .clone()
+                    .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+                let is_plan = is_plan_and_execute(&request);
+
+                let service_for_plan = request
+                    .metadata
+                    .get("target_service")
+                    .cloned()
+                    // empty string means "orchestrator decides", which will default to llm-service
+                    .unwrap_or_else(String::new);
+
                 // Create gRPC request
                 let proto_request = agi_core::Request {
                     id: request_id.clone(),
-                    service: "orchestrator".to_string(),
+                    service: if is_plan {
+                        service_for_plan
+                    } else {
+                        "orchestrator".to_string()
+                    },
                     method: request.method.clone(),
-                    payload: request.payload.into_bytes(),
-                    metadata: request.metadata,
+                    payload: request.payload.clone().into_bytes(),
+                    metadata: request.metadata.clone(),
                 };
-                
+
                 // Call Orchestrator
-                let mut client = agi_core::orchestrator_service_client::OrchestratorServiceClient::new(channel);
-                match client.process_request(tonic::Request::new(proto_request)).await {
-                    Ok(response) => {
-                        let agi_response = response.into_inner();
-                        
-                        // Transform into unified AgiResponse format
-                        (
-                            StatusCode::OK,
-                            Json(ExecuteResponse {
-                                final_answer: agi_response.final_answer,
-                                execution_plan: agi_response.execution_plan,
-                                routed_service: agi_response.routed_service,
-                                phoenix_session_id: agi_response.phoenix_session_id,
-                                output_artifact_urls: agi_response.output_artifact_urls,
-                            }),
-                        ).into_response()
+                let mut client =
+                    agi_core::orchestrator_service_client::OrchestratorServiceClient::new(channel);
+
+                if is_plan {
+                    match client.plan_and_execute(tonic::Request::new(proto_request)).await {
+                        Ok(response) => {
+                            let agi_response = response.into_inner();
+
+                            (
+                                StatusCode::OK,
+                                Json(ExecuteResponse {
+                                    final_answer: agi_response.final_answer,
+                                    execution_plan: agi_response.execution_plan,
+                                    routed_service: agi_response.routed_service,
+                                    phoenix_session_id: agi_response.phoenix_session_id,
+                                    output_artifact_urls: agi_response.output_artifact_urls,
+                                }),
+                            )
+                                .into_response()
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Orchestrator PlanAndExecute gRPC error: {}",
+                                e
+                            );
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(ErrorResponse {
+                                    error: format!(
+                                        "Orchestrator PlanAndExecute error: {}",
+                                        e
+                                    ),
+                                    code: 500,
+                                }),
+                            )
+                                .into_response()
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("Orchestrator gRPC error: {}", e);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ErrorResponse {
-                                error: format!("Orchestrator error: {}", e),
-                                code: 500,
-                            }),
-                        ).into_response()
+                } else {
+                    match client.process_request(tonic::Request::new(proto_request)).await {
+                        Ok(response) => {
+                            let agi_response = response.into_inner();
+
+                            (
+                                StatusCode::OK,
+                                Json(ExecuteResponse {
+                                    final_answer: agi_response.final_answer,
+                                    execution_plan: agi_response.execution_plan,
+                                    routed_service: agi_response.routed_service,
+                                    phoenix_session_id: agi_response.phoenix_session_id,
+                                    output_artifact_urls: agi_response.output_artifact_urls,
+                                }),
+                            )
+                                .into_response()
+                        }
+                        Err(e) => {
+                            tracing::error!("Orchestrator gRPC error: {}", e);
+                            (
+                                StatusCode::INTERNAL_SERVER_ERROR,
+                                Json(ErrorResponse {
+                                    error: format!("Orchestrator error: {}", e),
+                                    code: 500,
+                                }),
+                            )
+                                .into_response()
+                        }
                     }
                 }
             }
@@ -241,7 +318,8 @@ impl ApiGateway {
                         error: format!("Orchestrator unavailable: {}", e),
                         code: 503,
                     }),
-                ).into_response()
+                )
+                    .into_response()
             }
         }
     }

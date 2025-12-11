@@ -81,7 +81,7 @@ dependencies = [
  "tokio-test",
  "toml 0.8.23",
  "tonic 0.14.2",
- "tonic-health 0.14.2",
+ "tonic-health",
  "tonic-prost",
  "tonic-prost-build",
  "tracing",
@@ -728,24 +728,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3078c7629b62d3f0439517fa394996acacc5cbc91c5a20d8c658e77abd503a71"
 dependencies = [
  "generic-array",
-]
-
-[[package]]
-name = "blue-team-rs"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "env_logger 0.11.8",
- "log",
- "once_cell",
- "prost 0.14.1",
- "tokio",
- "tonic 0.14.2",
- "tonic-health 0.8.0",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4834,23 +4816,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "red-team-rs"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "env_logger 0.11.8",
- "log",
- "once_cell",
- "prost 0.14.1",
- "tokio",
- "tonic 0.14.2",
- "tonic-prost",
- "tonic-prost-build",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "redis"
 version = "0.23.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6598,31 +6563,6 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 
 [[package]]
 name = "tonic"
-version = "0.8.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f219fad3b929bef19b1f86fbc0358d35daed8f2cac972037ac0dc10bbb8d5fb"
-dependencies = [
- "async-stream",
- "async-trait",
- "base64 0.13.1",
- "bytes",
- "futures-core",
- "futures-util",
- "http 0.2.12",
- "http-body 0.4.6",
- "percent-encoding",
- "pin-project",
- "prost 0.11.9",
- "prost-derive 0.11.9",
- "tokio-stream",
- "tokio-util",
- "tower-layer",
- "tower-service",
- "tracing",
-]
-
-[[package]]
-name = "tonic"
 version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3082666a3a6433f7f511c7192923fa1fe07c69332d3c6a2e6bb040b569199d5a"
@@ -6779,20 +6719,6 @@ dependencies = [
 
 [[package]]
 name = "tonic-health"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a88aee666ef3a4d1ee46218bbc8e5f69bcf9cc27bf2e871d6b724d83f56d179f"
-dependencies = [
- "async-stream",
- "bytes",
- "prost 0.11.9",
- "tokio",
- "tokio-stream",
- "tonic 0.8.3",
-]
-
-[[package]]
-name = "tonic-health"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a82868bf299e0a1d2e8dce0dc33a46c02d6f045b2c1f1d6cc8dc3d0bf1812ef"
@@ -6864,9 +6790,7 @@ dependencies = [
  "once_cell",
  "prost 0.14.1",
  "regex",
- "reqwest 0.11.27",
  "serde",
- "serde_json",
  "thiserror 1.0.69",
  "tokio",
  "tonic 0.14.2",

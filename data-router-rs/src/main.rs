@@ -1137,8 +1137,6 @@ impl DataRouterService for DataRouterServer {
             "reflection" | "reflection-service" => ("REFLECTION", "reflection-service"),
             "scheduler" | "scheduler-service" => ("SCHEDULER", "scheduler-service"),
             "agent-registry" => ("AGENT_REGISTRY", "agent-registry"),
-            "red-team" => ("RED_TEAM", "red-team"),
-            "blue-team" => ("BLUE_TEAM", "blue-team"),
             "secrets" | "secrets-service" => ("SECRETS", "secrets-service"),
             "auth" | "auth-service" => ("AUTH", "auth-service"),
             _ => return Err(Status::not_found(format!("Service not found: {}", query.service_name))),
