@@ -1,9 +1,6 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .out_dir("src")
-        .compile(
-            &["../.proto/curiosity_engine.proto"],
-            &["../.proto"],
-        )?;
+        .compile(&["../.proto/curiosity_engine.proto"], &["../.proto"])?;
     Ok(())
 }

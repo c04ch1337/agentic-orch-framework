@@ -141,8 +141,8 @@ pub struct DependencyHealth {
 }
 
 /// Health check function signature
-pub type HealthCheckFn = Box<
-    dyn Fn() -> Pin<Box<dyn Future<Output = Result<SubHealthCheck>> + Send>> + Send + Sync,
+pub type HealthCheckFn = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<SubHealthCheck>> + Send>> + Send + Sync + 'static,
 >;
 
 /// Configuration for health check behavior
@@ -182,7 +182,6 @@ impl Default for HealthCheckConfig {
 }
 
 /// Health check manager
-#[derive(Debug)]
 pub struct HealthManager {
     /// Service name
     service_name: String,
@@ -295,7 +294,7 @@ impl HealthManager {
                 
                 if let Some(path) = &config.status_file_path {
                     // Write health status to file
-                    if let Ok(json) = serde_json::to_string(&health_info) {
+                    if let Ok(json) = serde_json::to_string(&*health_info) {
                         let _ = std::fs::write(path, json);
                     }
                 }
@@ -318,7 +317,7 @@ impl HealthManager {
                         
                         // Write final status file
                         if let Some(path) = &config.status_file_path {
-                            if let Ok(json) = serde_json::to_string(&health_info) {
+                            if let Ok(json) = serde_json::to_string(&*health_info) {
                                 let _ = std::fs::write(path, json);
                             }
                         }
@@ -363,7 +362,7 @@ impl HealthManager {
                             
                             // Write health status to file
                             if let Some(path) = &config.status_file_path {
-                                if let Ok(json) = serde_json::to_string(&health_info) {
+                                if let Ok(json) = serde_json::to_string(&*health_info) {
                                     let _ = std::fs::write(path, json);
                                 }
                             }
@@ -429,9 +428,9 @@ impl HealthManager {
                                         }
                                         
                                         // Record successful check
-                                        counter!(&format!("health.{}.check.{}.success", service_name, name), 1);
+                                        counter!(format!("health.{}.check.{}.success", service_name, name), 1);
                                         histogram!(
-                                            &format!("health.{}.check.{}.duration_ms", service_name, name),
+                                            format!("health.{}.check.{}.duration_ms", service_name, name),
                                             start.elapsed().as_millis() as f64
                                         );
                                         
@@ -475,7 +474,7 @@ impl HealthManager {
                                         };
                                         
                                         // Record failed check
-                                        counter!(&format!("health.{}.check.{}.failure", service_name, name), 1);
+                                        counter!(format!("health.{}.check.{}.failure", service_name, name), 1);
                                         
                                         // Check if we've reached failure threshold
                                         if failure_count >= config.failure_threshold {
@@ -530,7 +529,7 @@ impl HealthManager {
                                 },
                                 Err(_) => {
                                     // Timeout occurred
-                                    counter!(&format!("health.{}.check.{}.timeout", service_name, name), 1);
+                                    counter!(format!("health.{}.check.{}.timeout", service_name, name), 1);
                                     
                                     // Update failures count
                                     let failure_count = {
@@ -695,7 +694,7 @@ impl HealthManager {
                         }
                         
                         // Update metrics
-                        gauge!(&format!("health.{}.status", service_name), match current_status {
+                        gauge!(format!("health.{}.status", service_name), match current_status {
                             HealthStatus::Healthy => 0.0,
                             HealthStatus::Degraded => 1.0,
                             HealthStatus::Unhealthy => 2.0,
@@ -705,12 +704,12 @@ impl HealthManager {
                             HealthStatus::Unknown => 6.0,
                         });
                         
-                        gauge!(&format!("health.{}.uptime", service_name), start_time.elapsed().as_secs() as f64);
-                        gauge!(&format!("health.{}.ready", service_name), if health_info.ready { 1.0 } else { 0.0 });
+                        gauge!(format!("health.{}.uptime", service_name), start_time.elapsed().as_secs() as f64);
+                        gauge!(format!("health.{}.ready", service_name), if health_info.ready { 1.0 } else { 0.0 });
                         
                         // Write health status to file
                         if let Some(path) = &config.status_file_path {
-                            if let Ok(json) = serde_json::to_string(&health_info) {
+                            if let Ok(json) = serde_json::to_string(&*health_info) {
                                 let _ = std::fs::write(path, json);
                             }
                         }
@@ -763,7 +762,9 @@ impl HealthManager {
         }
         
         // Wrap the check function
-        let check_fn = Box::new(move || Box::pin(check()) as Pin<Box<dyn Future<Output = Result<SubHealthCheck>> + Send>>);
+        let check_fn: HealthCheckFn = Arc::new(move || {
+            Box::pin(check()) as Pin<Box<dyn Future<Output = Result<SubHealthCheck>> + Send>>
+        });
         
         // Add to registry
         checks.insert(name.clone(), check_fn);
@@ -833,80 +834,96 @@ impl HealthManager {
     {
         let name = name.into();
         let mut health = self.health.write().unwrap();
-        
-        if let Some(dep) = health.dependencies.get_mut(&name) {
-            dep.status = status;
-            dep.circuit_open = circuit_open;
-            dep.last_attempt = Some(chrono::Utc::now());
-            
-            if success {
-                dep.last_success = Some(chrono::Utc::now());
-            }
-            
-            // Recalculate overall status based on dependencies
-            let required_deps_healthy = health.dependencies.values()
-                .filter(|d| d.required)
-                .all(|d| d.status == HealthStatus::Healthy || d.status == HealthStatus::Degraded);
-            
-            // If all required dependencies are healthy but we're degraded due to dependencies
-            if required_deps_healthy && 
-               health.status == HealthStatus::Degraded && 
-               self.degraded_mode.is_active(format!("{}_dependency_{}", self.service_name, name)) {
-                // Deactivate dependency degraded mode
-                self.degraded_mode.deactivate(format!("{}_dependency_{}", self.service_name, name));
-                
-                // Check if all dependency degraded modes are inactive
-                let prefix = format!("{}_dependency_", self.service_name);
-                let any_active_dep = self.degraded_mode.active_modes()
-                    .iter()
-                    .any(|mode| mode.starts_with(&prefix));
-                
-                if !any_active_dep {
-                    // If no dependency degraded modes are active, check if health degraded mode is active
-                    if !self.degraded_mode.is_active(format!("{}_health", self.service_name)) {
-                        // If health is also not degraded, we can set status to healthy
-                        health.status = HealthStatus::Healthy;
-                        let _ = self.status_change_tx.send(HealthStatus::Healthy);
-                        
-                        info!(
-                            service = %self.service_name,
-                            dependency = %name,
-                            "Service health recovered due to dependency recovery"
-                        );
-                    }
-                }
-            } 
-            // If a required dependency is unhealthy and we're healthy
-            else if dep.required && 
-                    (status == HealthStatus::Unhealthy || status == HealthStatus::Unavailable) &&
-                    health.status == HealthStatus::Healthy {
-                // Degrade service
-                health.status = HealthStatus::Degraded;
-                let _ = self.status_change_tx.send(HealthStatus::Degraded);
-                
-                warn!(
-                    service = %self.service_name,
-                    dependency = %name,
-                    status = %status,
-                    "Service degraded due to dependency health"
-                );
-                
-                // Activate degraded mode
-                if self.config.auto_degrade {
-                    self.degraded_mode.activate(
-                        format!("{}_dependency_{}", self.service_name, name),
-                        format!("Dependency {} is {}", name, status),
-                        DegradedSeverity::Moderate
+
+        // Update dependency status
+        let dep = health.dependencies.get_mut(&name).ok_or_else(|| {
+            Error::new(
+                ErrorKind::Validation,
+                format!("Dependency '{}' not found", name),
+            )
+        })?;
+
+        dep.status = status;
+        dep.circuit_open = circuit_open;
+        dep.last_attempt = Some(chrono::Utc::now());
+
+        if success {
+            dep.last_success = Some(chrono::Utc::now());
+        }
+
+        let dep_required = dep.required;
+
+        // Drop mutable borrow before recalculating status
+        drop(dep);
+
+        // Recalculate overall status based on dependencies
+        let required_deps_healthy = health.dependencies.values()
+            .filter(|d| d.required)
+            .all(|d| d.status == HealthStatus::Healthy || d.status == HealthStatus::Degraded);
+
+        // If all required dependencies are healthy but we're degraded due to dependencies
+        if required_deps_healthy
+            && health.status == HealthStatus::Degraded
+            && self
+                .degraded_mode
+                .is_active(format!("{}_dependency_{}", self.service_name, name))
+        {
+            // Deactivate dependency degraded mode
+            self.degraded_mode
+                .deactivate(format!("{}_dependency_{}", self.service_name, name));
+
+            // Check if all dependency degraded modes are inactive
+            let prefix = format!("{}_dependency_", self.service_name);
+            let any_active_dep = self
+                .degraded_mode
+                .active_modes()
+                .iter()
+                .any(|mode| mode.starts_with(&prefix));
+
+            if !any_active_dep {
+                // If no dependency degraded modes are active, check if health degraded mode is active
+                if !self
+                    .degraded_mode
+                    .is_active(format!("{}_health", self.service_name))
+                {
+                    // If health is also not degraded, we can set status to healthy
+                    health.status = HealthStatus::Healthy;
+                    let _ = self.status_change_tx.send(HealthStatus::Healthy);
+
+                    info!(
+                        service = %self.service_name,
+                        dependency = %name,
+                        "Service health recovered due to dependency recovery"
                     );
                 }
             }
-        } else {
-            return Err(Error::new(
-                ErrorKind::Validation,
-                format!("Dependency '{}' not found", name)
-            ));
         }
-        
+        // If a required dependency is unhealthy and we're healthy
+        else if dep_required
+            && (status == HealthStatus::Unhealthy || status == HealthStatus::Unavailable)
+            && health.status == HealthStatus::Healthy
+        {
+            // Degrade service
+            health.status = HealthStatus::Degraded;
+            let _ = self.status_change_tx.send(HealthStatus::Degraded);
+
+            warn!(
+                service = %self.service_name,
+                dependency = %name,
+                status = %status,
+                "Service degraded due to dependency health"
+            );
+
+            // Activate degraded mode
+            if self.config.auto_degrade {
+                self.degraded_mode.activate(
+                    format!("{}_dependency_{}", self.service_name, name),
+                    format!("Dependency {} is {}", name, status),
+                    DegradedSeverity::Moderate,
+                );
+            }
+        }
+
         Ok(())
     }
     
@@ -990,7 +1007,6 @@ impl HealthManager {
 }
 
 /// A handle for graceful service shutdown
-#[derive(Debug)]
 pub struct ShutdownHandle {
     /// Service name
     service_name: String,
@@ -1113,7 +1129,6 @@ impl ShutdownHandle {
 }
 
 /// Process supervisor for automatic restart
-#[derive(Debug)]
 pub struct ProcessSupervisor {
     /// Process name
     name: String,
@@ -1350,9 +1365,9 @@ impl ProcessSupervisor {
                                 };
                                 
                                 // Record metrics
-                                counter!(&format!("supervisor.{}.restarts", name), 1);
+                                counter!(format!("supervisor.{}.restarts", name), 1);
                                 gauge!(
-                                    &format!("supervisor.{}.restart_delay_ms", name),
+                                    format!("supervisor.{}.restart_delay_ms", name),
                                     actual_delay.as_millis() as f64
                                 );
                                 
@@ -1435,14 +1450,14 @@ impl ProcessSupervisor {
 
 /// Creates a standard health check for an HTTP endpoint
 pub fn create_http_health_check(
-    name: String, 
+    name: String,
     url: String,
     timeout: Option<Duration>,
     circuit_breaker: Option<Arc<CircuitBreaker>>,
 ) -> HealthCheckFn {
     let timeout = timeout.unwrap_or_else(|| Duration::from_secs(5));
     
-    Box::new(move || {
+    Arc::new(move || {
         let name = name.clone();
         let url = url.clone();
         let circuit_breaker_clone = circuit_breaker.clone();

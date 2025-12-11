@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 // Import our enhanced validation module
 mod validation;
-use validation::{detect_threats, validate_content, sanitize_input};
+use validation::{detect_threats, sanitize_input, validate_content};
 
 /// Security threat patterns organized by category
 lazy_static! {
@@ -131,9 +131,9 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
             4 => ThreatSeverity::High,
             3 => ThreatSeverity::Medium,
             1..=2 => ThreatSeverity::Low,
-            _ => ThreatSeverity::None
+            _ => ThreatSeverity::None,
         };
-        
+
         return ThreatDetection {
             is_suspicious: true,
             threat_type: Some(threat_type),
@@ -141,12 +141,12 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
             severity: severity_level,
         };
     }
-    
+
     // Fallback to legacy pattern matching with timeout protection
     // SQL Injection check with safe regex
     for pattern in SQL_INJECTION_PATTERNS.iter() {
         let start_time = Instant::now();
-        
+
         // Use safe_pattern_match instead of direct regex
         if let Some(m) = pattern.find(&sanitized_text) {
             // Check if the regex operation took too long (potential ReDoS)
@@ -159,7 +159,7 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
                     severity: ThreatSeverity::Critical,
                 };
             }
-            
+
             return ThreatDetection {
                 is_suspicious: true,
                 threat_type: Some("SQL_INJECTION".to_string()),
@@ -168,18 +168,30 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
             };
         }
     }
-    
+
     // Run other pattern checks with similar timeout protection
     for (patterns, name, severity) in [
-        (&SHELL_INJECTION_PATTERNS, "SHELL_INJECTION", ThreatSeverity::Critical),
-        (&PATH_TRAVERSAL_PATTERNS, "PATH_TRAVERSAL", ThreatSeverity::High),
+        (
+            &SHELL_INJECTION_PATTERNS,
+            "SHELL_INJECTION",
+            ThreatSeverity::Critical,
+        ),
+        (
+            &PATH_TRAVERSAL_PATTERNS,
+            "PATH_TRAVERSAL",
+            ThreatSeverity::High,
+        ),
         (&XSS_PATTERNS, "XSS", ThreatSeverity::High),
         (&RANSOMWARE_PATTERNS, "RANSOMWARE", ThreatSeverity::Critical),
-        (&CREDENTIAL_PATTERNS, "CREDENTIAL_EXPOSURE", ThreatSeverity::Medium),
+        (
+            &CREDENTIAL_PATTERNS,
+            "CREDENTIAL_EXPOSURE",
+            ThreatSeverity::Medium,
+        ),
     ] {
         for pattern in patterns.iter() {
             let start_time = Instant::now();
-            
+
             if let Some(m) = pattern.find(&sanitized_text) {
                 // Check for timeout
                 if start_time.elapsed() > Duration::from_millis(100) {
@@ -190,7 +202,7 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
                         severity: ThreatSeverity::Critical,
                     };
                 }
-                
+
                 return ThreatDetection {
                     is_suspicious: true,
                     threat_type: Some(name.to_string()),
@@ -220,9 +232,9 @@ pub fn detect_threat_safe(text: &str) -> ThreatDetection {
             4 => ThreatSeverity::High,
             3 => ThreatSeverity::Medium,
             1..=2 => ThreatSeverity::Low,
-            _ => ThreatSeverity::None
+            _ => ThreatSeverity::None,
         };
-        
+
         return ThreatDetection {
             is_suspicious: true,
             threat_type: Some(threat_type),
@@ -230,7 +242,7 @@ pub fn detect_threat_safe(text: &str) -> ThreatDetection {
             severity: severity_level,
         };
     }
-    
+
     ThreatDetection {
         is_suspicious: false,
         threat_type: None,
@@ -247,7 +259,9 @@ mod tests {
     fn test_sql_injection_detection() {
         assert!(filter_suspicious_text("SELECT * FROM users"));
         assert!(filter_suspicious_text("' OR '1'='1"));
-        assert!(filter_suspicious_text("UNION SELECT password FROM accounts"));
+        assert!(filter_suspicious_text(
+            "UNION SELECT password FROM accounts"
+        ));
     }
 
     #[test]

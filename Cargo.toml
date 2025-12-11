@@ -29,6 +29,8 @@ members = [
     "auth-service-rs",
     "executor-rs",
     "reflection-service-rs",
+    "self-improve-rs",
+    "action-ledger-rs",
 ]
 
 [profile.release]

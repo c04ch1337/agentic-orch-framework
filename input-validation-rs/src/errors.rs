@@ -79,11 +79,11 @@ pub enum ValidationError {
     /// Schema validation error
     #[error("Schema validation failed: {0}")]
     SchemaError(String),
-    
+
     /// Composite validation error (multiple errors)
     #[error("{0} validation errors occurred")]
     Composite(CompositeError),
-    
+
     /// Generic validation error
     #[error("{0}")]
     Generic(String),
@@ -101,7 +101,7 @@ pub struct CompositeError {
 impl fmt::Display for CompositeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "{} validation errors:", self.errors.len())?;
-        
+
         for (idx, err) in self.errors.iter().enumerate() {
             if let Some(path) = &self.path {
                 writeln!(f, "  {}. At {}: {}", idx + 1, path, err)?;
@@ -109,7 +109,7 @@ impl fmt::Display for CompositeError {
                 writeln!(f, "  {}. {}", idx + 1, err)?;
             }
         }
-        
+
         Ok(())
     }
 }
@@ -121,19 +121,16 @@ impl ValidationError {
     }
 
     /// Create a new composite validation error from a collection of errors
-    pub fn composite<I>(errors: I) -> Self 
+    pub fn composite<I>(errors: I) -> Self
     where
-        I: IntoIterator<Item = ValidationError>
+        I: IntoIterator<Item = ValidationError>,
     {
         let errors: Vec<ValidationError> = errors.into_iter().collect();
         if errors.len() == 1 {
             // If there's only one error, return that directly
             errors.into_iter().next().unwrap()
         } else {
-            ValidationError::Composite(CompositeError {
-                errors,
-                path: None,
-            })
+            ValidationError::Composite(CompositeError { errors, path: None })
         }
     }
 
@@ -154,7 +151,7 @@ impl ValidationError {
             })
         }
     }
-    
+
     /// Returns true if this is a security-related error
     pub fn is_security_threat(&self) -> bool {
         matches!(self, ValidationError::SecurityThreat(_))
@@ -188,21 +185,21 @@ mod tests {
     fn test_validation_error_creation() {
         let err = ValidationError::new("Test error");
         assert!(matches!(err, ValidationError::Generic(_)));
-        
+
         if let ValidationError::Generic(msg) = err {
             assert_eq!(msg, "Test error");
         }
     }
-    
+
     #[test]
     fn test_composite_error() {
         let errs = vec![
             ValidationError::TooShort("String too short".to_string()),
             ValidationError::InvalidFormat("Invalid email".to_string()),
         ];
-        
+
         let composite = ValidationError::composite(errs);
-        
+
         if let ValidationError::Composite(comp) = composite {
             assert_eq!(comp.errors.len(), 2);
         } else {
@@ -212,7 +209,7 @@ mod tests {
         // Test with a single error
         let single_err = ValidationError::InvalidUrl("Bad URL".to_string());
         let composite_single = ValidationError::composite(vec![single_err.clone()]);
-        
+
         // Should unwrap to the original error
         assert_eq!(composite_single, single_err);
     }

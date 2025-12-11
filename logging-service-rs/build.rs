@@ -12,4 +12,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .compile_protos(&["../.proto/agi_core.proto"], &["../.proto"])?;
     Ok(())
 }
-

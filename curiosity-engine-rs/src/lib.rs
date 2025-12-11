@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use anyhow::Result;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 pub mod proto {
@@ -34,7 +34,7 @@ impl CuriosityEngine {
         // Initialize state
         let mut state = self.state.write().await;
         state.active_tasks = Vec::new();
-        
+
         Ok(())
     }
 
@@ -42,10 +42,10 @@ impl CuriosityEngine {
     pub async fn generate_research_task(&self, gap: KnowledgeGap) -> Result<ScheduledTask> {
         // Generate task description
         let task_description = format!("Research: {}", gap.description);
-        
+
         // Set high priority (8/10) as per requirements
         let priority = 8;
-        
+
         // Create the task
         let task = ScheduledTask {
             id: gap.id,
@@ -69,9 +69,7 @@ impl CuriosityEngine {
     /// Get a specific task by ID
     pub async fn get_task(&self, task_id: &str) -> Result<Option<ScheduledTask>> {
         let state = self.state.read().await;
-        Ok(state.active_tasks.iter()
-            .find(|t| t.id == task_id)
-            .cloned())
+        Ok(state.active_tasks.iter().find(|t| t.id == task_id).cloned())
     }
 
     /// Remove a completed task

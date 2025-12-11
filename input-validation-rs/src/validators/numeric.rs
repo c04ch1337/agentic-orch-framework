@@ -176,7 +176,7 @@ pub fn parse_float_in_range(s: &str, min: f64, max: f64) -> ValidationResult<f64
 pub fn is_port(value: u16) -> ValidationResult<()> {
     if value == 0 {
         Err(ValidationError::OutOfRange(
-            "Port number cannot be 0".to_string()
+            "Port number cannot be 0".to_string(),
         ))
     } else {
         Ok(())

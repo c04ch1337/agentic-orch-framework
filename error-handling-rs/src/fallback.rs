@@ -25,7 +25,7 @@ use crate::types::{Error, Result, ErrorKind};
 use crate::logging::current_correlation_id;
 
 /// Result of a fallback operation
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum FallbackResult<T> {
     /// The primary operation succeeded
     Primary(T),
@@ -175,9 +175,9 @@ pub enum ResultSource {
 
 /// Cache implementation for fallback values
 #[derive(Debug)]
-pub struct FallbackCache<K, V> 
+pub struct FallbackCache<K, V>
 where
-    K: std::hash::Hash + Eq + Clone,
+    K: std::hash::Hash + Eq + Clone + std::fmt::Debug,
     V: Clone,
 {
     /// The cache data
@@ -194,7 +194,7 @@ where
 
 impl<K, V> FallbackCache<K, V>
 where
-    K: std::hash::Hash + Eq + Clone,
+    K: std::hash::Hash + Eq + Clone + std::fmt::Debug,
     V: Clone,
 {
     /// Creates a new fallback cache
@@ -275,7 +275,7 @@ where
         // Record metrics
         if self.config.record_metrics {
             let size = cache.len();
-            gauge!(&format!("fallback_cache.{}.size", self.name), size as f64);
+            gauge!(format!("fallback_cache.{}.size", self.name), size as f64);
         }
     }
 
@@ -292,7 +292,7 @@ where
         
         // Record metrics
         if self.config.record_metrics {
-            gauge!(&format!("fallback_cache.{}.size", self.name), 0.0);
+            gauge!(format!("fallback_cache.{}.size", self.name), 0.0);
         }
     }
 
@@ -317,10 +317,10 @@ where
             0.0
         };
         
-        gauge!(&format!("fallback_cache.{}.hit_count", self.name), hit_count as f64);
-        gauge!(&format!("fallback_cache.{}.miss_count", self.name), miss_count as f64);
-        gauge!(&format!("fallback_cache.{}.hit_rate", self.name), hit_rate);
-        gauge!(&format!("fallback_cache.{}.size", self.name), self.size() as f64);
+        gauge!(format!("fallback_cache.{}.hit_count", self.name), hit_count as f64);
+        gauge!(format!("fallback_cache.{}.miss_count", self.name), miss_count as f64);
+        gauge!(format!("fallback_cache.{}.hit_rate", self.name), hit_rate);
+        gauge!(format!("fallback_cache.{}.size", self.name), self.size() as f64);
     }
 }
 
@@ -355,7 +355,7 @@ impl FallbackStrategy {
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<T>>,
-        T: Clone,
+        T: Clone + Send + 'static,
     {
         let result = self.execute_with_fallbacks(
             operation_name,
@@ -380,10 +380,10 @@ impl FallbackStrategy {
             if self.config.record_metrics {
                 match source {
                     ResultSource::Primary => {
-                        counter!(&format!("fallback.{}.cache.hit.primary", self.name), 1);
+                        counter!(format!("fallback.{}.cache.hit.primary", self.name), 1);
                     }
                     ResultSource::Fallback(_) => {
-                        counter!(&format!("fallback.{}.cache.hit.fallback", self.name), 1);
+                        counter!(format!("fallback.{}.cache.hit.fallback", self.name), 1);
                     }
                 }
             }
@@ -407,7 +407,7 @@ impl FallbackStrategy {
                 
                 // Record metrics
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.cache.miss.primary_success", self.name), 1);
+                    counter!(format!("fallback.{}.cache.miss.primary_success", self.name), 1);
                 }
                 
                 Ok(value)
@@ -415,7 +415,7 @@ impl FallbackStrategy {
             Err(error) => {
                 // Record metrics
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.cache.miss.primary_failure", self.name), 1);
+                    counter!(format!("fallback.{}.cache.miss.primary_failure", self.name), 1);
                 }
                 
                 warn!(
@@ -483,12 +483,12 @@ impl FallbackStrategy {
         
         // Record metrics
         if self.config.record_metrics {
-            counter!(&format!("fallback.{}.feature_flag.{}.attempted", self.name, flag_name), 1);
+            counter!(format!("fallback.{}.feature_flag.{}.attempted", self.name, flag_name), 1);
             
             if flag_enabled {
-                counter!(&format!("fallback.{}.feature_flag.{}.enabled", self.name, flag_name), 1);
+                counter!(format!("fallback.{}.feature_flag.{}.enabled", self.name, flag_name), 1);
             } else {
-                counter!(&format!("fallback.{}.feature_flag.{}.disabled", self.name, flag_name), 1);
+                counter!(format!("fallback.{}.feature_flag.{}.disabled", self.name, flag_name), 1);
             }
         }
         
@@ -507,12 +507,12 @@ impl FallbackStrategy {
                 
                 // Record failure
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.feature_flag.{}.enabled_failure", self.name, flag_name), 1);
+                    counter!(format!("fallback.{}.feature_flag.{}.enabled_failure", self.name, flag_name), 1);
                 }
             } else {
                 // Record success
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.feature_flag.{}.enabled_success", self.name, flag_name), 1);
+                    counter!(format!("fallback.{}.feature_flag.{}.enabled_success", self.name, flag_name), 1);
                 }
             }
             
@@ -532,12 +532,12 @@ impl FallbackStrategy {
                 
                 // Record failure
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.feature_flag.{}.fallback_failure", self.name, flag_name), 1);
+                    counter!(format!("fallback.{}.feature_flag.{}.fallback_failure", self.name, flag_name), 1);
                 }
             } else {
                 // Record success
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.feature_flag.{}.fallback_success", self.name, flag_name), 1);
+                    counter!(format!("fallback.{}.feature_flag.{}.fallback_success", self.name, flag_name), 1);
                 }
             }
             
@@ -548,7 +548,7 @@ impl FallbackStrategy {
         let duration = start.elapsed();
         if self.config.record_metrics {
             histogram!(
-                &format!("fallback.{}.feature_flag.{}.duration_ms", self.name, flag_name),
+                format!("fallback.{}.feature_flag.{}.duration_ms", self.name, flag_name),
                 duration.as_millis() as f64
             );
         }
@@ -588,14 +588,14 @@ impl FallbackStrategy {
             let duration = start.elapsed();
             
             histogram!(
-                &format!("fallback.{}.primary.duration_ms", self.name),
+                format!("fallback.{}.primary.duration_ms", self.name),
                 duration.as_millis() as f64
             );
             
             if result.is_ok() {
-                counter!(&format!("fallback.{}.primary.success", self.name), 1);
+                counter!(format!("fallback.{}.primary.success", self.name), 1);
             } else {
-                counter!(&format!("fallback.{}.primary.failure", self.name), 1);
+                counter!(format!("fallback.{}.primary.failure", self.name), 1);
             }
         }
         
@@ -620,7 +620,7 @@ impl FallbackStrategy {
             Ok(value) => {
                 // Primary succeeded
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.result.primary", self.name), 1);
+                    counter!(format!("fallback.{}.result.primary", self.name), 1);
                 }
                 
                 debug!(
@@ -652,10 +652,10 @@ impl FallbackStrategy {
                         Ok(value) => {
                             // Fallback succeeded
                             if self.config.record_metrics {
-                                counter!(&format!("fallback.{}.result.fallback", self.name), 1);
-                                counter!(&format!("fallback.{}.fallback.{}.success", self.name, i), 1);
+                                counter!(format!("fallback.{}.result.fallback", self.name), 1);
+                                counter!(format!("fallback.{}.fallback.{}.success", self.name, i), 1);
                                 histogram!(
-                                    &format!("fallback.{}.fallback.{}.duration_ms", self.name, i),
+                                    format!("fallback.{}.fallback.{}.duration_ms", self.name, i),
                                     fallback_start.elapsed().as_millis() as f64
                                 );
                             }
@@ -673,9 +673,9 @@ impl FallbackStrategy {
                         Err(error) => {
                             // Fallback failed too
                             if self.config.record_metrics {
-                                counter!(&format!("fallback.{}.fallback.{}.failure", self.name, i), 1);
+                                counter!(format!("fallback.{}.fallback.{}.failure", self.name, i), 1);
                                 histogram!(
-                                    &format!("fallback.{}.fallback.{}.duration_ms", self.name, i),
+                                    format!("fallback.{}.fallback.{}.duration_ms", self.name, i),
                                     fallback_start.elapsed().as_millis() as f64
                                 );
                             }
@@ -695,7 +695,7 @@ impl FallbackStrategy {
                 
                 // All fallbacks failed
                 if self.config.record_metrics {
-                    counter!(&format!("fallback.{}.result.failure", self.name), 1);
+                    counter!(format!("fallback.{}.result.failure", self.name), 1);
                 }
                 
                 error!(
@@ -734,12 +734,12 @@ where
     ).await
 }
 
-/// A simple helper to execute with a default value
+//// A simple helper to execute with a default value
 pub async fn with_default<F, Fut, T>(operation_name: &str, primary: F, default: T) -> Result<T>
 where
     F: FnOnce() -> Fut,
     Fut: Future<Output = Result<T>>,
-    T: Clone,
+    T: Clone + Send + 'static,
 {
     let strategy = FallbackStrategy::default();
     strategy.with_default(operation_name, primary, default).await
@@ -801,7 +801,7 @@ impl Bulkhead {
     {
         // Record attempt
         if self.record_metrics {
-            counter!(&format!("bulkhead.{}.attempts", self.name), 1);
+            counter!(format!("bulkhead.{}.attempts", self.name), 1);
         }
         
         // Try to acquire a permit
@@ -810,7 +810,7 @@ impl Bulkhead {
             Err(_) => {
                 // Semaphore closed
                 if self.record_metrics {
-                    counter!(&format!("bulkhead.{}.rejected", self.name), 1);
+                    counter!(format!("bulkhead.{}.rejected", self.name), 1);
                 }
                 
                 return Err(Error::new(
@@ -825,9 +825,9 @@ impl Bulkhead {
         
         // Record metrics
         if self.record_metrics {
-            counter!(&format!("bulkhead.{}.executed", self.name), 1);
-            gauge!(&format!("bulkhead.{}.concurrent", self.name), current as f64);
-            gauge!(&format!("bulkhead.{}.utilization", self.name), 
+            counter!(format!("bulkhead.{}.executed", self.name), 1);
+            gauge!(format!("bulkhead.{}.concurrent", self.name), current as f64);
+            gauge!(format!("bulkhead.{}.utilization", self.name),
                    current as f64 / self.max_concurrency as f64);
         }
         
@@ -838,12 +838,12 @@ impl Bulkhead {
         
         // Record result and metrics
         if self.record_metrics {
-            histogram!(&format!("bulkhead.{}.duration_ms", self.name), duration.as_millis() as f64);
+            histogram!(format!("bulkhead.{}.duration_ms", self.name), duration.as_millis() as f64);
             
             if result.is_ok() {
-                counter!(&format!("bulkhead.{}.success", self.name), 1);
+                counter!(format!("bulkhead.{}.success", self.name), 1);
             } else {
-                counter!(&format!("bulkhead.{}.failure", self.name), 1);
+                counter!(format!("bulkhead.{}.failure", self.name), 1);
             }
         }
         
@@ -852,7 +852,7 @@ impl Bulkhead {
         
         // Update metrics
         if self.record_metrics {
-            gauge!(&format!("bulkhead.{}.concurrent", self.name), current as f64);
+            gauge!(format!("bulkhead.{}.concurrent", self.name), current as f64);
         }
         
         // Return result (permit is dropped automatically)
@@ -935,8 +935,8 @@ impl DegradedMode {
             "Activated degraded mode"
         );
         
-        counter!(&format!("degraded_mode.{}.activations", mode_name), 1);
-        counter!(&format!("degraded_mode.{}.severity.{:?}", mode_name, severity), 1);
+        counter!(format!("degraded_mode.{}.activations", mode_name), 1);
+        counter!(format!("degraded_mode.{}.severity.{:?}", mode_name, severity), 1);
     }
     
     /// Deactivates a degraded mode
@@ -960,7 +960,7 @@ impl DegradedMode {
                         "Deactivated degraded mode"
                     );
                     
-                    gauge!(&format!("degraded_mode.{}.duration_secs", mode_name), duration.as_secs() as f64);
+                    gauge!(format!("degraded_mode.{}.duration_secs", mode_name), duration.as_secs() as f64);
                 }
             }
         }
@@ -1019,7 +1019,7 @@ impl DegradedMode {
                 "Using degraded implementation (mode active)"
             );
             
-            counter!(&format!("degraded_mode.{}.executions.degraded", mode), 1);
+            counter!(format!("degraded_mode.{}.executions.degraded", mode), 1);
             return degraded().await;
         }
         

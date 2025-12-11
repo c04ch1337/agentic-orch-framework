@@ -2,16 +2,16 @@
 // Main Entry Point for data-router-rs
 // Implements the DataRouterService gRPC server with client stubs for all downstream services
 
+use config_rs;
+use once_cell::sync::Lazy;
+use prost::Message;
+use std::env;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use tonic::{transport::Server, Request, Response, Status};
 use tokio::sync::Mutex;
 use tokio::time;
-use std::net::SocketAddr;
-use std::env;
-use prost::Message;
-use once_cell::sync::Lazy;
-use config_rs;
+use tonic::{Request, Response, Status, transport::Server};
 
 mod circuit_breaker;
 use circuit_breaker::CircuitBreaker;
@@ -28,45 +28,16 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    data_router_service_server::{DataRouterService, DataRouterServiceServer},
-    health_service_server::{HealthService, HealthServiceServer},
-    RouteRequest,
-    RouteResponse,
-    Response as ProtoResponse,
-    ServiceQuery,
-    ServiceEndpoint,
-    Request as ProtoRequest,
-    HealthRequest,
-    HealthResponse,
-    StrategyRequest,
     EmergencyDirective,
-    // Client stubs for downstream services
-    llm_service_client::LlmServiceClient,
-    tools_service_client::ToolsServiceClient,
-    safety_service_client::SafetyServiceClient,
-    logging_service_client::LoggingServiceClient,
-    mind_kb_service_client::MindKbServiceClient,
-    body_kb_service_client::BodyKbServiceClient,
-    heart_kb_service_client::HeartKbServiceClient,
-    social_kb_service_client::SocialKbServiceClient,
-    soul_kb_service_client::SoulKbServiceClient,
-    persistence_kb_service_client::PersistenceKbServiceClient,
-    context_manager_service_client::ContextManagerServiceClient,
     // LLM Service types
     GenerateRequest,
     GenerateResponse,
-    LlmProcessRequest,
-    LlmProcessResponse,
-    // Tools Service types
-    ToolRequest,
-    ToolResponse,
+    HealthRequest,
+    HealthResponse,
     ListToolsRequest,
     ListToolsResponse,
-    // Safety Service types
-    ValidationRequest,
-    ValidationResponse,
-    ThreatCheck,
-    ThreatResponse,
+    LlmProcessRequest,
+    LlmProcessResponse,
     // Logging Service types
     LogEntry,
     LogResponse,
@@ -75,10 +46,39 @@ use agi_core::{
     // Knowledge Base types
     QueryRequest,
     QueryResponse,
-    StoreRequest,
-    StoreResponse,
+    Request as ProtoRequest,
+    Response as ProtoResponse,
     RetrieveRequest,
     RetrieveResponse,
+    RouteRequest,
+    RouteResponse,
+    ServiceEndpoint,
+    ServiceQuery,
+    StoreRequest,
+    StoreResponse,
+    StrategyRequest,
+    ThreatCheck,
+    ThreatResponse,
+    // Tools Service types
+    ToolRequest,
+    ToolResponse,
+    // Safety Service types
+    ValidationRequest,
+    ValidationResponse,
+    body_kb_service_client::BodyKbServiceClient,
+    context_manager_service_client::ContextManagerServiceClient,
+    data_router_service_server::{DataRouterService, DataRouterServiceServer},
+    health_service_server::{HealthService, HealthServiceServer},
+    heart_kb_service_client::HeartKbServiceClient,
+    // Client stubs for downstream services
+    llm_service_client::LlmServiceClient,
+    logging_service_client::LoggingServiceClient,
+    mind_kb_service_client::MindKbServiceClient,
+    persistence_kb_service_client::PersistenceKbServiceClient,
+    safety_service_client::SafetyServiceClient,
+    social_kb_service_client::SocialKbServiceClient,
+    soul_kb_service_client::SoulKbServiceClient,
+    tools_service_client::ToolsServiceClient,
 };
 
 // Define the Data Router Server Structure
@@ -99,9 +99,11 @@ pub struct DataRouterServer {
     social_kb_client: Arc<Mutex<Option<SocialKbServiceClient<tonic::transport::Channel>>>>,
     soul_kb_client: Arc<Mutex<Option<SoulKbServiceClient<tonic::transport::Channel>>>>,
     // Persistence KB client
-    persistence_kb_client: Arc<Mutex<Option<PersistenceKbServiceClient<tonic::transport::Channel>>>>,
+    persistence_kb_client:
+        Arc<Mutex<Option<PersistenceKbServiceClient<tonic::transport::Channel>>>>,
     // Context Manager client
-    context_manager_client: Arc<Mutex<Option<ContextManagerServiceClient<tonic::transport::Channel>>>>,
+    context_manager_client:
+        Arc<Mutex<Option<ContextManagerServiceClient<tonic::transport::Channel>>>>,
     // Service health state tracking
     service_health: Arc<RwLock<HashMap<String, bool>>>,
     // Agent scope manager for isolation enforcement
@@ -113,21 +115,33 @@ impl DataRouterServer {
     pub fn new() -> Self {
         // Create an enhanced circuit breaker with advanced features
         let circuit_breaker = Arc::new(CircuitBreaker::new());
-        
+
         // Initialize service health tracking
         let service_health = Arc::new(RwLock::new(HashMap::new()));
-        
+
         // Initialize agent scope manager for isolation
         let agent_scope_manager = Arc::new(router::AgentScopeManager::new());
-        
+
         // Initialize known services as healthy
-        let service_names = ["llm", "tools", "safety", "logging",
-                            "mind-kb", "body-kb", "heart-kb", "social-kb", "soul-kb",
-                            "context-manager"];
+        let service_names = [
+            "llm",
+            "tools",
+            "safety",
+            "logging",
+            "mind-kb",
+            "body-kb",
+            "heart-kb",
+            "social-kb",
+            "soul-kb",
+            "context-manager",
+        ];
         for &service in &service_names {
-            service_health.write().unwrap().insert(service.to_string(), true);
+            service_health
+                .write()
+                .unwrap()
+                .insert(service.to_string(), true);
         }
-        
+
         Self {
             circuit_breaker,
             llm_client: Arc::new(Mutex::new(None)),
@@ -213,16 +227,20 @@ impl DataRouterServer {
         log::info!("Successfully connected to Soul-KB");
 
         // Initialize Context Manager client using standardized configuration
-        let context_manager_addr = config_rs::get_client_address("CONTEXT_MANAGER", 50064, Some("context-manager"));
+        let context_manager_addr =
+            config_rs::get_client_address("CONTEXT_MANAGER", 50064, Some("context-manager"));
         log::info!("Connecting to Context Manager at {}", context_manager_addr);
-        let context_manager_client = ContextManagerServiceClient::connect(context_manager_addr.clone()).await?;
+        let context_manager_client =
+            ContextManagerServiceClient::connect(context_manager_addr.clone()).await?;
         *self.context_manager_client.lock().await = Some(context_manager_client);
         log::info!("Successfully connected to Context Manager");
 
         // Initialize Persistence KB client using standardized configuration
-        let persistence_kb_addr = config_rs::get_client_address("PERSISTENCE_KB", 50071, Some("persistence-kb"));
+        let persistence_kb_addr =
+            config_rs::get_client_address("PERSISTENCE_KB", 50071, Some("persistence-kb"));
         log::info!("Connecting to Persistence KB at {}", persistence_kb_addr);
-        let persistence_kb_client = PersistenceKbServiceClient::connect(persistence_kb_addr.clone()).await?;
+        let persistence_kb_client =
+            PersistenceKbServiceClient::connect(persistence_kb_addr.clone()).await?;
         *self.persistence_kb_client.lock().await = Some(persistence_kb_client);
         log::info!("Successfully connected to Persistence KB");
 
@@ -231,10 +249,7 @@ impl DataRouterServer {
     }
 
     /// Helper method to get a client by service name
-    async fn get_client_for_service(
-        &self,
-        service_name: &str,
-    ) -> Result<String, Status> {
+    async fn get_client_for_service(&self, service_name: &str) -> Result<String, Status> {
         // This is a helper that returns the service name for routing logic
         // The actual client retrieval happens in the route method
         match service_name {
@@ -248,7 +263,10 @@ impl DataRouterServer {
             "social-kb" | "social" => Ok("social-kb".to_string()),
             "soul-kb" | "soul" => Ok("soul-kb".to_string()),
             "context-manager" | "context" => Ok("context-manager".to_string()),
-            _ => Err(Status::invalid_argument(format!("Unknown service: {}", service_name))),
+            _ => Err(Status::invalid_argument(format!(
+                "Unknown service: {}",
+                service_name
+            ))),
         }
     }
 
@@ -270,7 +288,11 @@ impl DataRouterServer {
         let method = req.method.as_str();
         let payload = &req.payload;
 
-        log::info!("Routing to LLM Service - Method: {}, Request ID: {}", method, request_id);
+        log::info!(
+            "Routing to LLM Service - Method: {}, Request ID: {}",
+            method,
+            request_id
+        );
 
         // Get the LLM client
         let client_guard = self.llm_client.lock().await;
@@ -287,96 +309,123 @@ impl DataRouterServer {
         // Execute protected by circuit breaker & retry
         let cb = self.circuit_breaker.clone();
         let service = "llm".to_string();
-        
+
         // Use the execute method with circuit breaker protection
         let response_payload = match method {
             "generate_text" | "generate" => {
                 // Deserialize GenerateRequest from payload
-                let generate_req = GenerateRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode GenerateRequest: {}", e)))?;
-                
+                let generate_req = GenerateRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode GenerateRequest: {}", e))
+                })?;
+
                 // Prepare client
                 let mut client_clone = client.clone();
                 let generate_req_clone = generate_req.clone();
-                
+
                 // Execute with circuit breaker protection
-                match cb.execute("llm", async move {
-                    // Actual service call
-                    let response = client_clone.generate_text(tonic::Request::new(generate_req_clone)).await
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                    Ok::<_, std::io::Error>(response.into_inner())
-                }).await {
+                match cb
+                    .execute("llm", async move {
+                        // Actual service call
+                        let response = client_clone
+                            .generate_text(tonic::Request::new(generate_req_clone))
+                            .await
+                            .map_err(|e| {
+                                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                            })?;
+                        Ok::<_, std::io::Error>(response.into_inner())
+                    })
+                    .await
+                {
                     Ok(generate_resp) => {
                         // Success - serialize response
                         let mut buf = Vec::new();
-                        generate_resp.encode(&mut buf)
-                            .map_err(|e| Status::internal(format!("Failed to encode GenerateResponse: {}", e)))?;
+                        generate_resp.encode(&mut buf).map_err(|e| {
+                            Status::internal(format!("Failed to encode GenerateResponse: {}", e))
+                        })?;
                         buf
-                    },
+                    }
                     Err(e) => {
                         // Error already recorded by circuit breaker
                         return Err(Status::internal(format!("LLM Service error: {}", e)));
                     }
                 }
-            },
+            }
             "process" => {
                 // Deserialize LLMProcessRequest from payload
-                let process_req = LlmProcessRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode LLMProcessRequest: {}", e)))?;
-                
+                let process_req = LlmProcessRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode LLMProcessRequest: {}", e))
+                })?;
+
                 // Prepare client
                 let mut client_clone = client.clone();
                 let process_req_clone = process_req.clone();
-                
+
                 // Execute with circuit breaker protection
-                match cb.execute("llm", async move {
-                    // Actual service call
-                    let response = client_clone.process(tonic::Request::new(process_req_clone)).await
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                    Ok::<_, std::io::Error>(response.into_inner())
-                }).await {
+                match cb
+                    .execute("llm", async move {
+                        // Actual service call
+                        let response = client_clone
+                            .process(tonic::Request::new(process_req_clone))
+                            .await
+                            .map_err(|e| {
+                                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                            })?;
+                        Ok::<_, std::io::Error>(response.into_inner())
+                    })
+                    .await
+                {
                     Ok(process_resp) => {
                         // Success - serialize response
                         let mut buf = Vec::new();
-                        process_resp.encode(&mut buf)
-                            .map_err(|e| Status::internal(format!("Failed to encode LLMProcessResponse: {}", e)))?;
+                        process_resp.encode(&mut buf).map_err(|e| {
+                            Status::internal(format!("Failed to encode LLMProcessResponse: {}", e))
+                        })?;
                         buf
-                    },
+                    }
                     Err(e) => {
                         // Error already recorded by circuit breaker
                         return Err(Status::internal(format!("LLM Service error: {}", e)));
                     }
                 }
-            },
+            }
             "embed_text" => {
                 // Deserialize LLMProcessRequest from payload
-                let embed_req = LlmProcessRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode LLMProcessRequest: {}", e)))?;
-                
+                let embed_req = LlmProcessRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode LLMProcessRequest: {}", e))
+                })?;
+
                 // Prepare client
                 let mut client_clone = client.clone();
                 let embed_req_clone = embed_req.clone();
-                
+
                 // Execute with circuit breaker protection
-                match cb.execute("llm", async move {
-                    // Actual service call
-                    let response = client_clone.embed_text(tonic::Request::new(embed_req_clone)).await
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-                    Ok::<_, std::io::Error>(response.into_inner())
-                }).await {
+                match cb
+                    .execute("llm", async move {
+                        // Actual service call
+                        let response = client_clone
+                            .embed_text(tonic::Request::new(embed_req_clone))
+                            .await
+                            .map_err(|e| {
+                                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                            })?;
+                        Ok::<_, std::io::Error>(response.into_inner())
+                    })
+                    .await
+                {
                     Ok(embed_resp) => {
                         // Success - serialize response
                         let mut buf = Vec::new();
-                        embed_resp.encode(&mut buf)
-                            .map_err(|e| Status::internal(format!("Failed to encode LLMProcessResponse: {}", e)))?;
+                        embed_resp.encode(&mut buf).map_err(|e| {
+                            Status::internal(format!("Failed to encode LLMProcessResponse: {}", e))
+                        })?;
                         buf
-                    },
+                    }
                     Err(e) => {
                         // Error already recorded by circuit breaker
                         return Err(Status::internal(format!("LLM Service error: {}", e)));
                     }
                 }
-            },
+            }
             _ => {
                 return Err(Status::invalid_argument(format!(
                     "Unknown LLM Service method: {}",
@@ -386,7 +435,10 @@ impl DataRouterServer {
         };
 
         // Update service health state
-        self.service_health.write().unwrap().insert("llm".to_string(), true);
+        self.service_health
+            .write()
+            .unwrap()
+            .insert("llm".to_string(), true);
 
         Ok(ProtoResponse {
             id: request_id.to_string(),
@@ -423,48 +475,56 @@ impl DataRouterServer {
         let method = req.method.as_str();
         let payload = &req.payload;
 
-        log::info!("Routing to Tools Service - Method: {}, Request ID: {}", method, request_id);
+        log::info!(
+            "Routing to Tools Service - Method: {}, Request ID: {}",
+            method,
+            request_id
+        );
 
         // Route based on method
         let response_payload = match method {
             "execute_tool" => {
                 // Deserialize ToolRequest from payload
-                let tool_req = ToolRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode ToolRequest: {}", e)))?;
-                
+                let tool_req = ToolRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode ToolRequest: {}", e))
+                })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .execute_tool(tonic::Request::new(tool_req))
                     .await
                     .map_err(|e| Status::internal(format!("Tools Service error: {}", e)))?;
-                
+
                 let tool_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                tool_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode ToolResponse: {}", e)))?;
+                tool_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode ToolResponse: {}", e))
+                })?;
                 buf
             }
             "list_tools" => {
                 // Deserialize ListToolsRequest from payload
-                let list_req = ListToolsRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode ListToolsRequest: {}", e)))?;
-                
+                let list_req = ListToolsRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode ListToolsRequest: {}", e))
+                })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .list_tools(tonic::Request::new(list_req))
                     .await
                     .map_err(|e| Status::internal(format!("Tools Service error: {}", e)))?;
-                
+
                 let list_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                list_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode ListToolsResponse: {}", e)))?;
+                list_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode ListToolsResponse: {}", e))
+                })?;
                 buf
             }
             _ => {
@@ -510,68 +570,86 @@ impl DataRouterServer {
         let method = req.method.as_str();
         let payload = &req.payload;
 
-        log::info!("Routing to Safety Service - Method: {}, Request ID: {}", method, request_id);
+        log::info!(
+            "Routing to Safety Service - Method: {}, Request ID: {}",
+            method,
+            request_id
+        );
 
         // Route based on method
         let response_payload = match method {
             "check_policy" => {
                 // Deserialize ValidationRequest from payload
-                let validation_req = ValidationRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode ValidationRequest: {}", e)))?;
-                
+                let validation_req =
+                    ValidationRequest::decode(payload.as_slice()).map_err(|e| {
+                        Status::invalid_argument(format!(
+                            "Failed to decode ValidationRequest: {}",
+                            e
+                        ))
+                    })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .check_policy(tonic::Request::new(validation_req))
                     .await
                     .map_err(|e| Status::internal(format!("Safety Service error: {}", e)))?;
-                
+
                 let validation_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                validation_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode ValidationResponse: {}", e)))?;
+                validation_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode ValidationResponse: {}", e))
+                })?;
                 buf
             }
             "validate_request" => {
                 // Deserialize ValidationRequest from payload
-                let validation_req = ValidationRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode ValidationRequest: {}", e)))?;
-                
+                let validation_req =
+                    ValidationRequest::decode(payload.as_slice()).map_err(|e| {
+                        Status::invalid_argument(format!(
+                            "Failed to decode ValidationRequest: {}",
+                            e
+                        ))
+                    })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .validate_request(tonic::Request::new(validation_req))
                     .await
                     .map_err(|e| Status::internal(format!("Safety Service error: {}", e)))?;
-                
+
                 let validation_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                validation_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode ValidationResponse: {}", e)))?;
+                validation_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode ValidationResponse: {}", e))
+                })?;
                 buf
             }
             "check_threat" => {
                 // Deserialize ThreatCheck from payload
-                let threat_req = ThreatCheck::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode ThreatCheck: {}", e)))?;
-                
+                let threat_req = ThreatCheck::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode ThreatCheck: {}", e))
+                })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .check_threat(tonic::Request::new(threat_req))
                     .await
                     .map_err(|e| Status::internal(format!("Safety Service error: {}", e)))?;
-                
+
                 let threat_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                threat_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode ThreatResponse: {}", e)))?;
+                threat_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode ThreatResponse: {}", e))
+                })?;
                 buf
             }
             _ => {
@@ -617,48 +695,56 @@ impl DataRouterServer {
         let method = req.method.as_str();
         let payload = &req.payload;
 
-        log::info!("Routing to Logging Service - Method: {}, Request ID: {}", method, request_id);
+        log::info!(
+            "Routing to Logging Service - Method: {}, Request ID: {}",
+            method,
+            request_id
+        );
 
         // Route based on method
         let response_payload = match method {
             "log" => {
                 // Deserialize LogEntry from payload
-                let log_entry = LogEntry::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode LogEntry: {}", e)))?;
-                
+                let log_entry = LogEntry::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode LogEntry: {}", e))
+                })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .log(tonic::Request::new(log_entry))
                     .await
                     .map_err(|e| Status::internal(format!("Logging Service error: {}", e)))?;
-                
+
                 let log_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                log_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode LogResponse: {}", e)))?;
+                log_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode LogResponse: {}", e))
+                })?;
                 buf
             }
             "get_metrics" => {
                 // Deserialize MetricsRequest from payload
-                let metrics_req = MetricsRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode MetricsRequest: {}", e)))?;
-                
+                let metrics_req = MetricsRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode MetricsRequest: {}", e))
+                })?;
+
                 // Call the client
                 let mut client = client;
                 let response = client
                     .get_metrics(tonic::Request::new(metrics_req))
                     .await
                     .map_err(|e| Status::internal(format!("Logging Service error: {}", e)))?;
-                
+
                 let metrics_resp = response.into_inner();
-                
+
                 // Serialize response back to bytes
                 let mut buf = Vec::new();
-                metrics_resp.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode MetricsResponse: {}", e)))?;
+                metrics_resp.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode MetricsResponse: {}", e))
+                })?;
                 buf
             }
             _ => {
@@ -697,14 +783,20 @@ impl DataRouterServer {
         let method = req.method.as_str();
         let payload = &req.payload;
 
-        log::info!("Routing to {} - Method: {}, Request ID: {}", kb_name, method, request_id);
-        
+        log::info!(
+            "Routing to {} - Method: {}, Request ID: {}",
+            kb_name,
+            method,
+            request_id
+        );
+
         // Extract agent ID from request metadata if present
-        let agent_id = req.metadata
+        let agent_id = req
+            .metadata
             .get("agent_id")
             .map(|id| id.clone())
             .unwrap_or_else(|| "PUBLIC".to_string());
-            
+
         log::info!("Request from agent: {}", agent_id);
 
         // All KBs share the same interface, so we handle them generically
@@ -712,167 +804,233 @@ impl DataRouterServer {
         let response_payload = match (kb_name, method) {
             // Query operations
             (kb, "query_kb" | "query") => {
-                let query_req = QueryRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode QueryRequest: {}", e)))?;
-                
+                let query_req = QueryRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode QueryRequest: {}", e))
+                })?;
+
                 let response = match kb {
                     "mind-kb" => {
                         // For Mind-KB, apply scope isolation
                         let mind_kb_client = kb_clients::MindKbClient::new(
                             self.mind_kb_client.clone(),
-                            self.agent_scope_manager.clone()
+                            self.agent_scope_manager.clone(),
                         );
-                        
+
                         // Create query metadata
                         let query_meta = kb_clients::QueryMetadata::new(&agent_id, kb, method);
-                        
+
                         // Execute query with scope filtering
                         mind_kb_client.query_kb(query_req, query_meta).await?
                     }
                     "body-kb" => {
                         let guard = self.body_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Body-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Body-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.query_kb(tonic::Request::new(query_req)).await
+                        client
+                            .query_kb(tonic::Request::new(query_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Body-KB error: {}", e)))?
                     }
                     "heart-kb" => {
                         let guard = self.heart_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Heart-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Heart-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.query_kb(tonic::Request::new(query_req)).await
+                        client
+                            .query_kb(tonic::Request::new(query_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Heart-KB error: {}", e)))?
                     }
                     "social-kb" => {
                         let guard = self.social_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Social-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Social-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.query_kb(tonic::Request::new(query_req)).await
+                        client
+                            .query_kb(tonic::Request::new(query_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Social-KB error: {}", e)))?
                     }
                     "soul-kb" => {
                         let guard = self.soul_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Soul-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Soul-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.query_kb(tonic::Request::new(query_req)).await
+                        client
+                            .query_kb(tonic::Request::new(query_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Soul-KB error: {}", e)))?
                     }
                     _ => unreachable!(),
                 };
-                
+
                 let mut buf = Vec::new();
-                response.into_inner().encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode QueryResponse: {}", e)))?;
+                response.into_inner().encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode QueryResponse: {}", e))
+                })?;
                 buf
             }
             // Store operations
             (kb, "store_fact" | "store") => {
-                let store_req = StoreRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode StoreRequest: {}", e)))?;
-                
+                let store_req = StoreRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode StoreRequest: {}", e))
+                })?;
+
                 let response = match kb {
                     "mind-kb" => {
                         // For Mind-KB, apply scope isolation for store operations
                         let mind_kb_client = kb_clients::MindKbClient::new(
                             self.mind_kb_client.clone(),
-                            self.agent_scope_manager.clone()
+                            self.agent_scope_manager.clone(),
                         );
-                        
+
                         // Create query metadata
                         let query_meta = kb_clients::QueryMetadata::new(&agent_id, kb, method);
-                        
+
                         // Execute store with scope validation
                         mind_kb_client.store_fact(store_req, query_meta).await?
                     }
                     "body-kb" => {
                         let guard = self.body_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Body-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Body-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.store_fact(tonic::Request::new(store_req)).await
+                        client
+                            .store_fact(tonic::Request::new(store_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Body-KB error: {}", e)))?
                     }
                     "heart-kb" => {
                         let guard = self.heart_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Heart-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Heart-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.store_fact(tonic::Request::new(store_req)).await
+                        client
+                            .store_fact(tonic::Request::new(store_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Heart-KB error: {}", e)))?
                     }
                     "social-kb" => {
                         let guard = self.social_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Social-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Social-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.store_fact(tonic::Request::new(store_req)).await
+                        client
+                            .store_fact(tonic::Request::new(store_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Social-KB error: {}", e)))?
                     }
                     "soul-kb" => {
                         let guard = self.soul_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Soul-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Soul-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.store_fact(tonic::Request::new(store_req)).await
+                        client
+                            .store_fact(tonic::Request::new(store_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Soul-KB error: {}", e)))?
                     }
                     _ => unreachable!(),
                 };
-                
+
                 let mut buf = Vec::new();
-                response.into_inner().encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode StoreResponse: {}", e)))?;
+                response.into_inner().encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode StoreResponse: {}", e))
+                })?;
                 buf
             }
             // Retrieve operations
             (kb, "retrieve") => {
-                let retrieve_req = RetrieveRequest::decode(payload.as_slice())
-                    .map_err(|e| Status::invalid_argument(format!("Failed to decode RetrieveRequest: {}", e)))?;
-                
+                let retrieve_req = RetrieveRequest::decode(payload.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("Failed to decode RetrieveRequest: {}", e))
+                })?;
+
                 let response = match kb {
                     "mind-kb" => {
                         // For Mind-KB, apply scope isolation for retrieve operations
                         let mind_kb_client = kb_clients::MindKbClient::new(
                             self.mind_kb_client.clone(),
-                            self.agent_scope_manager.clone()
+                            self.agent_scope_manager.clone(),
                         );
-                        
+
                         // Create query metadata
                         let query_meta = kb_clients::QueryMetadata::new(&agent_id, kb, method);
-                        
+
                         // Execute retrieve with scope validation
                         mind_kb_client.retrieve(retrieve_req, query_meta).await?
                     }
                     "body-kb" => {
                         let guard = self.body_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Body-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Body-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.retrieve(tonic::Request::new(retrieve_req)).await
+                        client
+                            .retrieve(tonic::Request::new(retrieve_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Body-KB error: {}", e)))?
                     }
                     "heart-kb" => {
                         let guard = self.heart_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Heart-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Heart-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.retrieve(tonic::Request::new(retrieve_req)).await
+                        client
+                            .retrieve(tonic::Request::new(retrieve_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Heart-KB error: {}", e)))?
                     }
                     "social-kb" => {
                         let guard = self.social_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Social-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Social-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.retrieve(tonic::Request::new(retrieve_req)).await
+                        client
+                            .retrieve(tonic::Request::new(retrieve_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Social-KB error: {}", e)))?
                     }
                     "soul-kb" => {
                         let guard = self.soul_kb_client.lock().await;
-                        let mut client = guard.as_ref().ok_or_else(|| Status::unavailable("Soul-KB client not initialized"))?.clone();
+                        let mut client = guard
+                            .as_ref()
+                            .ok_or_else(|| Status::unavailable("Soul-KB client not initialized"))?
+                            .clone();
                         drop(guard);
-                        client.retrieve(tonic::Request::new(retrieve_req)).await
+                        client
+                            .retrieve(tonic::Request::new(retrieve_req))
+                            .await
                             .map_err(|e| Status::internal(format!("Soul-KB error: {}", e)))?
                     }
                     _ => unreachable!(),
                 };
-                
+
                 let mut buf = Vec::new();
-                response.into_inner().encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode RetrieveResponse: {}", e)))?;
+                response.into_inner().encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode RetrieveResponse: {}", e))
+                })?;
                 buf
             }
             (_, method) => {
@@ -926,7 +1084,10 @@ impl DataRouterServer {
         let response = client.check_existential_status(request).await?;
         let status = response.into_inner();
         if status.status_code == 999 {
-            log::warn!("Persistence KB indicates existential threat! Status code: {}", status.status_code);
+            log::warn!(
+                "Persistence KB indicates existential threat! Status code: {}",
+                status.status_code
+            );
             // Trigger emergency directive
             self.execute_emergency_directive(status.strategy_id).await?;
         }
@@ -934,7 +1095,10 @@ impl DataRouterServer {
     }
 
     /// Execute emergency directive via Tools Service
-    async fn execute_emergency_directive(&self, strategy_id: String) -> Result<(), Box<dyn std::error::Error>> {
+    async fn execute_emergency_directive(
+        &self,
+        strategy_id: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Get the strategy from Persistence KB
         let client_guard = self.persistence_kb_client.lock().await;
         let client = match client_guard.as_ref() {
@@ -972,7 +1136,10 @@ impl DataRouterServer {
         if !result.success {
             log::error!("Emergency directive execution failed: {}", result.result);
         } else {
-            log::info!("Emergency directive executed successfully: {}", result.result);
+            log::info!(
+                "Emergency directive executed successfully: {}",
+                result.result
+            );
         }
         Ok(())
     }
@@ -992,11 +1159,11 @@ impl DataRouterService for DataRouterServer {
         request: Request<RouteRequest>,
     ) -> Result<Response<RouteResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         // Extract target service and original request
         let target_service = req_data.target_service.clone();
         let original_request = req_data.request.clone();
-        
+
         // Extract agent ID from metadata if present
         let agent_id = if let Some(ref req) = original_request {
             req.metadata
@@ -1006,68 +1173,89 @@ impl DataRouterService for DataRouterServer {
         } else {
             "PUBLIC".to_string()
         };
-        
+
         let request_id = original_request
             .as_ref()
             .map(|r| r.id.clone())
             .unwrap_or_else(|| "unknown".to_string());
-            
+
         log::info!("Processing request from agent: {}", agent_id);
-        
-        log::info!("Routing Request ID: {} -> Target: {}", request_id, target_service);
-        
+
+        log::info!(
+            "Routing Request ID: {} -> Target: {}",
+            request_id,
+            target_service
+        );
+
         // Normalize service name
         let normalized_service = self.get_client_for_service(&target_service).await?;
-        
+
         // Add correlation ID for distributed tracing
         let correlation_id = format!("{}-{}", normalized_service, request_id);
-        
+
         // Circuit Breaker Check: if circuit is open, fail fast
         if !self.circuit_breaker.is_allowed(&normalized_service) {
             log::warn!("Circuit OPEN for {}: request blocked", normalized_service);
-            return Err(circuit_breaker::create_circuit_open_error(&normalized_service));
+            return Err(circuit_breaker::create_circuit_open_error(
+                &normalized_service,
+            ));
         }
-        
+
         // Get service health
         let is_healthy = {
             let health_guard = self.service_health.read().unwrap();
             *health_guard.get(&normalized_service).unwrap_or(&true)
         };
-        
+
         // If service is known to be unhealthy but circuit is still closed,
         // this provides faster rejection before trying the call
         if !is_healthy {
-            log::warn!("Service {} is known to be unhealthy, rejecting request", normalized_service);
+            log::warn!(
+                "Service {} is known to be unhealthy, rejecting request",
+                normalized_service
+            );
             // We don't do circuit_breaker.record_failure here because we haven't actually tried calling
             return Err(Status::unavailable(format!(
-                "Service {} is currently unhealthy", normalized_service
+                "Service {} is currently unhealthy",
+                normalized_service
             )));
         }
-        
+
         // Add metrics for request tracking
         counter!(&format!("data_router.requests.{}", normalized_service), 1);
         let start_time = Instant::now();
-        
+
         // Route to the appropriate service based on target_service
         let result = match normalized_service.as_str() {
             "llm" => {
-                self.route_to_llm_service(original_request.as_ref(), &request_id).await
+                self.route_to_llm_service(original_request.as_ref(), &request_id)
+                    .await
             }
             "tools" => {
-                self.route_to_tools_service(original_request.as_ref(), &request_id).await
+                self.route_to_tools_service(original_request.as_ref(), &request_id)
+                    .await
             }
             "safety" => {
-                self.route_to_safety_service(original_request.as_ref(), &request_id).await
+                self.route_to_safety_service(original_request.as_ref(), &request_id)
+                    .await
             }
             "logging" => {
-                self.route_to_logging_service(original_request.as_ref(), &request_id).await
+                self.route_to_logging_service(original_request.as_ref(), &request_id)
+                    .await
             }
             "mind-kb" | "body-kb" | "heart-kb" | "social-kb" | "soul-kb" => {
-                self.route_to_knowledge_base(&normalized_service, original_request.as_ref(), &request_id).await
+                self.route_to_knowledge_base(
+                    &normalized_service,
+                    original_request.as_ref(),
+                    &request_id,
+                )
+                .await
             }
             "context-manager" => {
                 // Handle context manager routing (placeholder)
-                Err(Status::unimplemented("Context manager routing not yet implemented"))
+                Err(Status::unimplemented(
+                    "Context manager routing not yet implemented",
+                ))
             }
             _ => {
                 return Err(Status::invalid_argument(format!(
@@ -1076,33 +1264,42 @@ impl DataRouterService for DataRouterServer {
                 )));
             }
         };
-        
+
         // Record metrics for request latency
         let duration_ms = start_time.elapsed().as_millis() as f64;
-        metrics::histogram!(&format!("data_router.latency.{}", normalized_service), duration_ms);
-        
+        metrics::histogram!(
+            &format!("data_router.latency.{}", normalized_service),
+            duration_ms
+        );
+
         // Record success/failure with circuit breaker - the individual methods also record success/failure,
         // but we do it here as well for any errors that might occur outside their specific handling
         match &result {
             Ok(_) => {
                 self.circuit_breaker.record_success(&normalized_service);
                 counter!(&format!("data_router.success.{}", normalized_service), 1);
-                
+
                 // Update service health
-                self.service_health.write().unwrap().insert(normalized_service.clone(), true);
+                self.service_health
+                    .write()
+                    .unwrap()
+                    .insert(normalized_service.clone(), true);
             }
             Err(_) => {
                 self.circuit_breaker.record_failure(&normalized_service);
                 counter!(&format!("data_router.failure.{}", normalized_service), 1);
-                
+
                 // Update service health - we mark it unhealthy on first failure
                 // This is aggressive but helps with fast rejection of requests
-                self.service_health.write().unwrap().insert(normalized_service.clone(), false);
+                self.service_health
+                    .write()
+                    .unwrap()
+                    .insert(normalized_service.clone(), false);
             }
         }
-        
+
         let response = result?;
-        
+
         let reply = RouteResponse {
             response: Some(response),
             routed_to: normalized_service,
@@ -1116,9 +1313,9 @@ impl DataRouterService for DataRouterServer {
         request: Request<ServiceQuery>,
     ) -> Result<Response<ServiceEndpoint>, Status> {
         let query = request.into_inner();
-        
+
         log::info!("Service discovery query for: {}", query.service_name);
-        
+
         // Service discovery using standardized configuration
         // First, normalize service name
         let (service_key, container_name) = match query.service_name.as_str() {
@@ -1139,24 +1336,26 @@ impl DataRouterService for DataRouterServer {
             "agent-registry" => ("AGENT_REGISTRY", "agent-registry"),
             "secrets" | "secrets-service" => ("SECRETS", "secrets-service"),
             "auth" | "auth-service" => ("AUTH", "auth-service"),
-            _ => return Err(Status::not_found(format!("Service not found: {}", query.service_name))),
+            _ => {
+                return Err(Status::not_found(format!(
+                    "Service not found: {}",
+                    query.service_name
+                )));
+            }
         };
-        
+
         // Get default port for the service
         let default_port = config_rs::get_default_port(service_key);
-        
+
         // Check for port override in environment
         let port = env::var(format!("{}_SERVICE_PORT", service_key))
             .map(|p| p.parse::<i32>().unwrap_or(default_port as i32))
             .unwrap_or(default_port as i32);
-            
+
         // Use container name as address for service mesh/container networking
         let address = container_name.to_string();
 
-        let reply = ServiceEndpoint {
-            address,
-            port,
-        };
+        let reply = ServiceEndpoint { address, port };
 
         Ok(Response::new(reply))
     }
@@ -1170,18 +1369,29 @@ impl HealthService for DataRouterServer {
         _request: Request<HealthRequest>,
     ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
-        
+
         // Check all downstream service dependencies using enhanced circuit breaker
         let mut dependencies = std::collections::HashMap::new();
-        
-        let services = ["llm", "tools", "safety", "logging", "mind-kb", "body-kb", "heart-kb", "social-kb", "soul-kb", "persistence-kb"];
+
+        let services = [
+            "llm",
+            "tools",
+            "safety",
+            "logging",
+            "mind-kb",
+            "body-kb",
+            "heart-kb",
+            "social-kb",
+            "soul-kb",
+            "persistence-kb",
+        ];
         let mut all_healthy = true;
-        
+
         for service in &services {
             // Get detailed health information
             let health = self.circuit_breaker.get_health(service);
             let state = CircuitState::from(health.state);
-            
+
             // Determine status based on circuit state and error rate
             let status = match state {
                 CircuitState::Closed => {
@@ -1191,23 +1401,29 @@ impl HealthService for DataRouterServer {
                     } else {
                         "SERVING"
                     }
-                },
+                }
                 CircuitState::Open => {
                     all_healthy = false;
                     "NOT_SERVING"
-                },
+                }
                 CircuitState::HalfOpen => "TESTING",
             };
-            
+
             // Add detailed metrics to help with dashboard creation
             gauge!(&format!("health.{}.error_rate", service), health.error_rate);
-            gauge!(&format!("health.{}.request_count", service), health.request_count as f64);
-            gauge!(&format!("health.{}.state", service), match state {
-                CircuitState::Closed => 0.0,
-                CircuitState::Open => 2.0,
-                CircuitState::HalfOpen => 1.0,
-            });
-            
+            gauge!(
+                &format!("health.{}.request_count", service),
+                health.request_count as f64
+            );
+            gauge!(
+                &format!("health.{}.state", service),
+                match state {
+                    CircuitState::Closed => 0.0,
+                    CircuitState::Open => 2.0,
+                    CircuitState::HalfOpen => 1.0,
+                }
+            );
+
             dependencies.insert(service.to_string(), status.to_string());
         }
 
@@ -1215,7 +1431,11 @@ impl HealthService for DataRouterServer {
             healthy: all_healthy,
             service_name: "data-router-service".to_string(),
             uptime_seconds: uptime,
-            status: if all_healthy { "SERVING".to_string() } else { "DEGRADED".to_string() },
+            status: if all_healthy {
+                "SERVING".to_string()
+            } else {
+                "DEGRADED".to_string()
+            },
             dependencies,
         };
 
@@ -1265,4 +1485,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

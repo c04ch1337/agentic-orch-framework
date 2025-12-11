@@ -1,10 +1,10 @@
-use std::sync::Arc;
-use std::collections::HashMap;
 use anyhow::Result;
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub mod validation;
 pub mod doc_store;
+pub mod validation;
 pub mod vector_search;
 
 /// Core Body Knowledge Base service implementation
@@ -19,7 +19,7 @@ struct KBState {
     // Sensor data and actuator states
     sensor_readings: HashMap<String, Vec<u8>>,
     actuator_states: HashMap<String, Vec<u8>>,
-    
+
     // Metadata and indices
     metadata: HashMap<String, HashMap<String, String>>,
 }
@@ -39,7 +39,7 @@ impl BodyKnowledgeBase {
         state.sensor_readings = HashMap::new();
         state.actuator_states = HashMap::new();
         state.metadata = HashMap::new();
-        
+
         Ok(())
     }
 
@@ -50,7 +50,7 @@ impl BodyKnowledgeBase {
 
         // Get current state
         let state = self.state.read().await;
-        
+
         // Collect matching results
         let mut results = Vec::new();
         let mut metadata = HashMap::new();
@@ -86,46 +86,68 @@ impl BodyKnowledgeBase {
     }
 
     /// Store data in the knowledge base
-    pub async fn store(&self, key: &str, value: Vec<u8>, metadata: HashMap<String, String>) -> Result<String> {
+    pub async fn store(
+        &self,
+        key: &str,
+        value: Vec<u8>,
+        metadata: HashMap<String, String>,
+    ) -> Result<String> {
         // Validate inputs
-        let (sanitized_key, sanitized_value, sanitized_metadata) = 
+        let (sanitized_key, sanitized_value, sanitized_metadata) =
             validation::validate_store_request(key, &value, &metadata)?;
 
         // Update state
         let mut state = self.state.write().await;
-        
+
         // Determine if this is sensor or actuator data based on key prefix
         if sanitized_key.starts_with("sensor/") {
-            state.sensor_readings.insert(sanitized_key.clone(), sanitized_value);
+            state
+                .sensor_readings
+                .insert(sanitized_key.clone(), sanitized_value);
         } else if sanitized_key.starts_with("actuator/") {
-            state.actuator_states.insert(sanitized_key.clone(), sanitized_value);
+            state
+                .actuator_states
+                .insert(sanitized_key.clone(), sanitized_value);
         } else {
             // Default to sensor data
-            state.sensor_readings.insert(sanitized_key.clone(), sanitized_value);
+            state
+                .sensor_readings
+                .insert(sanitized_key.clone(), sanitized_value);
         }
 
         // Store metadata
-        state.metadata.insert(sanitized_key.clone(), sanitized_metadata);
+        state
+            .metadata
+            .insert(sanitized_key.clone(), sanitized_metadata);
 
         Ok(sanitized_key)
     }
 
     /// Retrieve data from the knowledge base
-    pub async fn retrieve(&self, key: &str, filters: &HashMap<String, String>) -> Result<RetrieveResult> {
+    pub async fn retrieve(
+        &self,
+        key: &str,
+        filters: &HashMap<String, String>,
+    ) -> Result<RetrieveResult> {
         // Validate inputs
-        let (sanitized_key, sanitized_filters) = 
+        let (sanitized_key, sanitized_filters) =
             validation::validate_retrieve_request(key, filters)?;
 
         // Get state
         let state = self.state.read().await;
 
         // Try to get value from both sensor and actuator data
-        let value = state.sensor_readings.get(&sanitized_key)
+        let value = state
+            .sensor_readings
+            .get(&sanitized_key)
             .or_else(|| state.actuator_states.get(&sanitized_key))
             .cloned();
 
         // Get metadata
-        let metadata = state.metadata.get(&sanitized_key).cloned()
+        let metadata = state
+            .metadata
+            .get(&sanitized_key)
+            .cloned()
             .unwrap_or_default();
 
         Ok(RetrieveResult {
@@ -151,7 +173,7 @@ pub struct QueryResult {
     pub metadata: HashMap<String, HashMap<String, String>>,
 }
 
-/// Retrieve result structure 
+/// Retrieve result structure
 #[derive(Debug, Clone)]
 pub struct RetrieveResult {
     pub value: Option<Vec<u8>>,

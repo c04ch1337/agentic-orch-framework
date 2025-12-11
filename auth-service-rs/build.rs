@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &[
                 "../.proto/auth_service.proto",
                 "../.proto/agi_core.proto",
-                "../.proto/secrets_service.proto"
+                "../.proto/secrets_service.proto",
             ],
             &["../.proto"], // The directory containing the proto files
         )?;

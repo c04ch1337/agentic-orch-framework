@@ -4,16 +4,14 @@
 //! URL-based attacks and ensuring URL inputs are correctly formatted.
 
 use crate::errors::{ValidationError, ValidationResult};
-use url::{Url, Host};
 use std::collections::HashSet;
+use url::{Host, Url};
 
 /// Validate that a string is a valid URL
 pub fn is_url(s: &str) -> ValidationResult<()> {
     match Url::parse(s) {
         Ok(_) => Ok(()),
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -30,10 +28,8 @@ pub fn allowed_protocol(s: &str, allowed: &[&str]) -> ValidationResult<()> {
                     scheme, allowed
                 )))
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -44,24 +40,23 @@ pub fn allowed_domain(s: &str, allowed: &[&str]) -> ValidationResult<()> {
             if let Some(host) = url.host_str() {
                 if allowed.iter().any(|&allowed_domain| {
                     // Allow exact match or subdomains of allowed domains
-                    host == allowed_domain || 
-                    (allowed_domain.starts_with(".") && host.ends_with(allowed_domain))
+                    host == allowed_domain
+                        || (allowed_domain.starts_with(".") && host.ends_with(allowed_domain))
                 }) {
                     Ok(())
                 } else {
                     Err(ValidationError::InvalidUrl(format!(
-                        "URL domain '{}' is not in the allowed domains list", host
+                        "URL domain '{}' is not in the allowed domains list",
+                        host
                     )))
                 }
             } else {
                 Err(ValidationError::InvalidUrl(
-                    "URL has no host component".to_string()
+                    "URL has no host component".to_string(),
                 ))
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -72,24 +67,23 @@ pub fn denied_domain(s: &str, denied: &[&str]) -> ValidationResult<()> {
             if let Some(host) = url.host_str() {
                 if denied.iter().any(|&denied_domain| {
                     // Check exact match or subdomains of denied domains
-                    host == denied_domain || 
-                    (denied_domain.starts_with(".") && host.ends_with(denied_domain))
+                    host == denied_domain
+                        || (denied_domain.starts_with(".") && host.ends_with(denied_domain))
                 }) {
                     Err(ValidationError::InvalidUrl(format!(
-                        "URL domain '{}' is in the denied domains list", host
+                        "URL domain '{}' is in the denied domains list",
+                        host
                     )))
                 } else {
                     Ok(())
                 }
             } else {
                 Err(ValidationError::InvalidUrl(
-                    "URL has no host component".to_string()
+                    "URL has no host component".to_string(),
                 ))
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -101,13 +95,11 @@ pub fn no_credentials(s: &str) -> ValidationResult<()> {
                 Ok(())
             } else {
                 Err(ValidationError::SecurityThreat(
-                    "URL contains credentials (username/password) which is not allowed".to_string()
+                    "URL contains credentials (username/password) which is not allowed".to_string(),
                 ))
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -119,15 +111,14 @@ pub fn no_path_segments(s: &str, denied_segments: &[&str]) -> ValidationResult<(
             for segment in path_segments {
                 if !segment.is_empty() && denied_segments.contains(&segment) {
                     return Err(ValidationError::InvalidUrl(format!(
-                        "URL contains denied path segment '{}'", segment
+                        "URL contains denied path segment '{}'",
+                        segment
                     )));
                 }
             }
             Ok(())
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -141,7 +132,8 @@ pub fn valid_port(s: &str, allowed_ports: Option<&[u16]>) -> ValidationResult<()
                         Ok(())
                     } else {
                         Err(ValidationError::InvalidUrl(format!(
-                            "URL port {} is not in the allowed ports list", port
+                            "URL port {} is not in the allowed ports list",
+                            port
                         )))
                     }
                 } else {
@@ -150,10 +142,8 @@ pub fn valid_port(s: &str, allowed_ports: Option<&[u16]>) -> ValidationResult<()
             } else {
                 Ok(())
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -167,31 +157,24 @@ pub fn allowed_query_params(s: &str, allowed: &[&str]) -> ValidationResult<()> {
                     .filter_map(|p| p.split('=').next())
                     .map(|s| s.to_string())
                     .collect();
-                
-                let allowed_set: HashSet<String> = allowed
-                    .iter()
-                    .map(|&s| s.to_string())
-                    .collect();
-                
-                let disallowed: Vec<String> = params
-                    .difference(&allowed_set)
-                    .cloned()
-                    .collect();
-                
+
+                let allowed_set: HashSet<String> = allowed.iter().map(|&s| s.to_string()).collect();
+
+                let disallowed: Vec<String> = params.difference(&allowed_set).cloned().collect();
+
                 if disallowed.is_empty() {
                     Ok(())
                 } else {
                     Err(ValidationError::InvalidUrl(format!(
-                        "URL contains disallowed query parameters: {:?}", disallowed
+                        "URL contains disallowed query parameters: {:?}",
+                        disallowed
                     )))
                 }
             } else {
                 Ok(())
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -203,18 +186,16 @@ pub fn no_ip_hosts(s: &str) -> ValidationResult<()> {
                 match host {
                     Host::Domain(_) => Ok(()),
                     Host::Ipv4(_) | Host::Ipv6(_) => Err(ValidationError::InvalidUrl(
-                        "URLs with IP addresses as hosts are not allowed".to_string()
+                        "URLs with IP addresses as hosts are not allowed".to_string(),
                     )),
                 }
             } else {
                 Err(ValidationError::InvalidUrl(
-                    "URL has no host component".to_string()
+                    "URL has no host component".to_string(),
                 ))
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -235,13 +216,11 @@ pub fn allowed_file_extension(s: &str, allowed: &[&str]) -> ValidationResult<()>
             } else {
                 // No file extension
                 Err(ValidationError::InvalidUrl(
-                    "URL path has no file extension".to_string()
+                    "URL path has no file extension".to_string(),
                 ))
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -250,19 +229,21 @@ pub fn no_path_traversal(s: &str) -> ValidationResult<()> {
     match Url::parse(s) {
         Ok(url) => {
             let path = url.path();
-            
+
             // Check for parent directory traversal
-            if path.contains("/../") || path.ends_with("/..") || path == ".." || path.starts_with("../") {
+            if path.contains("/../")
+                || path.ends_with("/..")
+                || path == ".."
+                || path.starts_with("../")
+            {
                 Err(ValidationError::SecurityThreat(
-                    "URL contains directory traversal patterns".to_string()
+                    "URL contains directory traversal patterns".to_string(),
                 ))
             } else {
                 Ok(())
             }
-        },
-        Err(e) => Err(ValidationError::InvalidUrl(format!(
-            "Invalid URL: {}", e
-        )))
+        }
+        Err(e) => Err(ValidationError::InvalidUrl(format!("Invalid URL: {}", e))),
     }
 }
 
@@ -270,16 +251,16 @@ pub fn no_path_traversal(s: &str) -> ValidationResult<()> {
 pub fn is_safe_url(s: &str) -> ValidationResult<()> {
     // Safe protocols
     allowed_protocol(s, &["http", "https"])?;
-    
+
     // No credentials
     no_credentials(s)?;
-    
+
     // No path traversal
     no_path_traversal(s)?;
-    
+
     // No IP hosts (require domain names)
     no_ip_hosts(s)?;
-    
+
     Ok(())
 }
 

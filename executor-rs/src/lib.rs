@@ -5,22 +5,15 @@ mod execution_logic;
 mod windows_executor;
 
 pub use execution_logic::{
-    execute_shell_command,
-    execute_python_sandboxed,
-    simulate_input,
-    get_execution_stats,
+    execute_python_sandboxed, execute_shell_command, get_execution_stats, simulate_input,
 };
 
-pub use windows_executor::{
-    execute_with_windows_control,
-    validate_path,
-    JobObjectManager,
-};
+pub use windows_executor::{execute_with_windows_control, validate_path, JobObjectManager};
 
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
-use once_cell::sync::Lazy;
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -37,7 +30,7 @@ impl Executor {
     pub fn new() -> Self {
         // Initialize service health tracking
         let service_health = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
-        
+
         // Initialize known services as healthy
         let service_names = ["shell", "python", "input_simulation", "process_watchdog"];
         tokio::spawn(async move {
@@ -46,10 +39,8 @@ impl Executor {
                 health.insert(service.to_string(), true);
             }
         });
-        
-        Self {
-            service_health,
-        }
+
+        Self { service_health }
     }
 
     /// Execute a shell command with Windows native control
@@ -105,17 +96,17 @@ impl Executor {
     /// Get service dependencies status
     pub fn get_dependencies(&self) -> HashMap<String, String> {
         let mut dependencies = HashMap::new();
-        
+
         #[cfg(target_os = "windows")]
         {
             dependencies.insert("windows_job_object".to_string(), "AVAILABLE".to_string());
             dependencies.insert("process_watchdog".to_string(), "AVAILABLE".to_string());
             dependencies.insert("sandbox_directory".to_string(), "CONFIGURED".to_string());
         }
-        
+
         dependencies.insert("shell".to_string(), "AVAILABLE".to_string());
         dependencies.insert("input_simulation".to_string(), "AVAILABLE".to_string());
-        
+
         dependencies
     }
 }
@@ -127,10 +118,10 @@ mod tests {
     #[tokio::test]
     async fn test_service_health_tracking() {
         let executor = Executor::new();
-        
+
         // Test initial health state
         assert!(executor.get_service_health("shell").await);
-        
+
         // Test health update
         executor.update_service_health("shell", false).await;
         assert!(!executor.get_service_health("shell").await);
@@ -139,12 +130,10 @@ mod tests {
     #[tokio::test]
     async fn test_execute_command() {
         let executor = Executor::new();
-        let result = executor.execute_command(
-            "echo",
-            &["Hello".to_string()],
-            &HashMap::new()
-        ).await;
-        
+        let result = executor
+            .execute_command("echo", &["Hello".to_string()], &HashMap::new())
+            .await;
+
         assert!(result.is_ok());
         let (stdout, stderr, exit_code) = result.unwrap();
         assert!(stdout.contains("Hello"));

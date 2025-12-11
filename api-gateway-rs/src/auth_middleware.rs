@@ -1,27 +1,22 @@
-use std::sync::Arc;
 use axum::{
+    body::{self, Body},
+    extract::Path,
+    http::header::AUTHORIZATION,
     http::{Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
-    extract::Path,
-    http::header::AUTHORIZATION,
-    body::{self, Body},
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 // Re-export functions from auth_client
 pub use crate::auth_client::{
-    init_auth_client,
-    validate_token,
-    check_permission,
-    validate_api_key,
-    revoke_token,
-    generate_client_token,
-    is_auth_healthy,
+    check_permission, generate_client_token, init_auth_client, is_auth_healthy, revoke_token,
+    validate_api_key, validate_token,
 };
 
 // Token data structure (local definition instead of phoenix_orch_proto)
@@ -37,17 +32,29 @@ pub struct TokenData {
 // Permission maps for endpoints
 static ENDPOINT_PERMISSIONS: Lazy<RwLock<HashMap<String, String>>> = Lazy::new(|| {
     let mut map = HashMap::new();
-    
+
     // Default permissions for endpoints
     map.insert("/api/v1/execute".to_string(), "execute:invoke".to_string());
     map.insert("/api/v1/token".to_string(), "tokens:generate".to_string());
-    
+
     // Protected admin endpoints
-    map.insert("/api/v1/admin/users".to_string(), "admin:users:read".to_string());
-    map.insert("/api/v1/admin/users/create".to_string(), "admin:users:create".to_string());
-    map.insert("/api/v1/admin/users/update".to_string(), "admin:users:update".to_string());
-    map.insert("/api/v1/admin/users/delete".to_string(), "admin:users:delete".to_string());
-    
+    map.insert(
+        "/api/v1/admin/users".to_string(),
+        "admin:users:read".to_string(),
+    );
+    map.insert(
+        "/api/v1/admin/users/create".to_string(),
+        "admin:users:create".to_string(),
+    );
+    map.insert(
+        "/api/v1/admin/users/update".to_string(),
+        "admin:users:update".to_string(),
+    );
+    map.insert(
+        "/api/v1/admin/users/delete".to_string(),
+        "admin:users:delete".to_string(),
+    );
+
     RwLock::new(map)
 });
 
@@ -60,10 +67,11 @@ pub struct AuthErrorResponse {
 
 /// Extract token from Authorization header
 fn extract_token(req: &Request<Body>) -> Option<String> {
-    let auth_header = req.headers()
+    let auth_header = req
+        .headers()
         .get(AUTHORIZATION)
         .and_then(|header| header.to_str().ok());
-    
+
     match auth_header {
         Some(auth) if auth.starts_with("Bearer ") => Some(auth[7..].to_string()),
         Some(auth) => Some(auth.to_string()), // Fallback for simple tokens or API keys
@@ -72,13 +80,16 @@ fn extract_token(req: &Request<Body>) -> Option<String> {
 }
 
 /// Main authentication middleware
-pub async fn auth_middleware(req: Request<Body>, next: Next) -> Result<Response, impl IntoResponse> {
+pub async fn auth_middleware(
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, impl IntoResponse> {
     // Skip auth for some endpoints
     let path = req.uri().path();
     if path == "/" || path == "/health" {
         return Ok(next.run(req).await);
     }
-    
+
     // Get token from header
     let token = match extract_token(&req) {
         Some(token) => token,
@@ -92,7 +103,7 @@ pub async fn auth_middleware(req: Request<Body>, next: Next) -> Result<Response,
             ));
         }
     };
-    
+
     // Validate token
     match validate_token(&token).await {
         Ok(token_data) => {
@@ -100,10 +111,10 @@ pub async fn auth_middleware(req: Request<Body>, next: Next) -> Result<Response,
             // We need to clone the request to add token data to extensions
             let (parts, body) = req.into_parts();
             let mut req = Request::from_parts(parts, body);
-            
+
             // Store token data in request extensions for later middleware
             req.extensions_mut().insert(token_data);
-            
+
             // Continue to next middleware
             Ok(next.run(req).await)
         }
@@ -114,10 +125,10 @@ pub async fn auth_middleware(req: Request<Body>, next: Next) -> Result<Response,
                     // API key is valid, create request with token data
                     let (parts, body) = req.into_parts();
                     let mut req = Request::from_parts(parts, body);
-                    
+
                     // Store token data in request extensions
                     req.extensions_mut().insert(token_data);
-                    
+
                     // Continue to next middleware
                     Ok(next.run(req).await)
                 }
@@ -137,24 +148,27 @@ pub async fn auth_middleware(req: Request<Body>, next: Next) -> Result<Response,
 }
 
 /// Permission checking middleware - runs after auth_middleware
-pub async fn permission_middleware(req: Request<Body>, next: Next) -> Result<Response, impl IntoResponse> {
+pub async fn permission_middleware(
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, impl IntoResponse> {
     // Skip permission check for public endpoints
     let path = req.uri().path();
     if path == "/" || path == "/health" {
         return Ok(next.run(req).await);
     }
-    
+
     // Get required permission for this endpoint
     let endpoint_perm = {
         let perms = ENDPOINT_PERMISSIONS.read().await;
         perms.get(path).cloned()
     };
-    
+
     // If no permission required for this endpoint, continue
     if endpoint_perm.is_none() {
         return Ok(next.run(req).await);
     }
-    
+
     // Get token from auth_middleware's extensions
     let token_data = match req.extensions().get::<TokenData>() {
         Some(data) => data,
@@ -168,16 +182,16 @@ pub async fn permission_middleware(req: Request<Body>, next: Next) -> Result<Res
             ));
         }
     };
-    
+
     // Check permission
     let required_permission = endpoint_perm.unwrap();
-    
+
     // If token has admin role, allow access to everything
     let has_admin = token_data.roles.contains(&"admin".to_string());
     if has_admin {
         return Ok(next.run(req).await);
     }
-    
+
     // Otherwise check the specific permission
     match check_permission(&token_data.token, &required_permission).await {
         Ok(true) => {

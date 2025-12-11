@@ -1,19 +1,12 @@
+use std::time::Duration;
 use tokio;
 use tonic::{Request, Response};
-use std::time::Duration;
 
 use agent_registry::{
-    AgentRegistryService,
-    AgentRegistryClient,
-    ListAgentsRequest,
-    GetAvailableCapabilitiesRequest,
+    AgentRegistryClient, AgentRegistryService, GetAvailableCapabilitiesRequest, ListAgentsRequest,
 };
 
-use orchestrator::{
-    OrchestratorService,
-    OrchestratorClient,
-    RequestData,
-};
+use orchestrator::{OrchestratorClient, OrchestratorService, RequestData};
 
 struct TestAgent {
     name: String,
@@ -44,7 +37,7 @@ async fn test_complete_agent_verification_flow() {
     // 2. Start test agents with health checks
     let agent1 = TestAgent::new("BLUE_TEAM", vec!["analyze_threat"]);
     let agent2 = TestAgent::new("RED_TEAM", vec!["simulate_attack"]);
-    
+
     tokio::spawn(agent1.serve(50064));
     tokio::spawn(agent2.serve(50065));
 
@@ -56,9 +49,10 @@ async fn test_complete_agent_verification_flow() {
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // 4. Verify Registry health checks
-    let registry_client = AgentRegistryClient::connect(
-        format!("http://localhost:{}", registry_port)
-    ).await.unwrap();
+    let registry_client =
+        AgentRegistryClient::connect(format!("http://localhost:{}", registry_port))
+            .await
+            .unwrap();
 
     let agents = registry_client
         .list_agents(ListAgentsRequest::default())
@@ -72,9 +66,9 @@ async fn test_complete_agent_verification_flow() {
     assert!(agents.iter().all(|a| a.verified));
 
     // 5. Test Orchestrator routing
-    let orchestrator_client = OrchestratorClient::connect(
-        "http://localhost:50051"
-    ).await.unwrap();
+    let orchestrator_client = OrchestratorClient::connect("http://localhost:50051")
+        .await
+        .unwrap();
 
     let response = orchestrator_client
         .process_request(Request::new(RequestData {
@@ -93,6 +87,10 @@ async fn test_complete_agent_verification_flow() {
         .unwrap()
         .into_inner();
 
-    assert!(capabilities.capabilities.contains(&"analyze_threat".to_string()));
-    assert!(capabilities.capabilities.contains(&"simulate_attack".to_string()));
+    assert!(capabilities
+        .capabilities
+        .contains(&"analyze_threat".to_string()));
+    assert!(capabilities
+        .capabilities
+        .contains(&"simulate_attack".to_string()));
 }

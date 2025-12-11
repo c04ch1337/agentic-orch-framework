@@ -2,7 +2,7 @@
 // NLP Language Detection using whatlang
 // Identifies language for routing and tagging multi-lingual requests
 
-use whatlang::{detect, Lang, Info};
+use whatlang::{Info, Lang, detect};
 
 /// Language detection result
 #[derive(Debug, Clone)]

@@ -2,16 +2,18 @@
 //!
 //! This module provides validators for string inputs.
 
+use super::utils::get_regex;
 use crate::errors::{ValidationError, ValidationResult};
-use unicode_normalization::UnicodeNormalization;
 use regex::RegexBuilder;
 use std::collections::HashSet;
-use super::utils::get_regex;
+use unicode_normalization::UnicodeNormalization;
 
 /// Validate that a string is not empty
 pub fn not_empty(s: &str) -> ValidationResult<()> {
     if s.is_empty() {
-        Err(ValidationError::TooShort("String must not be empty".to_string()))
+        Err(ValidationError::TooShort(
+            "String must not be empty".to_string(),
+        ))
     } else {
         Ok(())
     }
@@ -51,24 +53,25 @@ pub fn matches_pattern(s: &str, pattern: &str) -> ValidationResult<()> {
                 Ok(())
             } else {
                 Err(ValidationError::PatternMismatch(format!(
-                    "String does not match pattern: {}", 
+                    "String does not match pattern: {}",
                     pattern
                 )))
             }
-        },
-        Err(e) => {
-            Err(ValidationError::Generic(format!("Invalid regex pattern: {}", e)))
         }
+        Err(e) => Err(ValidationError::Generic(format!(
+            "Invalid regex pattern: {}",
+            e
+        ))),
     }
 }
 
 /// Validate that a string matches a pattern with specific regex options
 pub fn matches_pattern_with_options(
-    s: &str, 
+    s: &str,
     pattern: &str,
     case_insensitive: bool,
     multi_line: bool,
-    dot_matches_new_line: bool
+    dot_matches_new_line: bool,
 ) -> ValidationResult<()> {
     match RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
@@ -81,21 +84,22 @@ pub fn matches_pattern_with_options(
                 Ok(())
             } else {
                 Err(ValidationError::PatternMismatch(format!(
-                    "String does not match pattern: {}", 
+                    "String does not match pattern: {}",
                     pattern
                 )))
             }
-        },
-        Err(e) => {
-            Err(ValidationError::Generic(format!("Invalid regex pattern: {}", e)))
         }
+        Err(e) => Err(ValidationError::Generic(format!(
+            "Invalid regex pattern: {}",
+            e
+        ))),
     }
 }
 
 /// Validate that a string contains only allowed characters
 pub fn allowed_chars(s: &str, allowed: &str) -> ValidationResult<()> {
     let allowed_chars: HashSet<char> = allowed.chars().collect();
-    
+
     for c in s.chars() {
         if !allowed_chars.contains(&c) {
             return Err(ValidationError::InvalidCharacters(format!(
@@ -104,7 +108,7 @@ pub fn allowed_chars(s: &str, allowed: &str) -> ValidationResult<()> {
             )));
         }
     }
-    
+
     Ok(())
 }
 
@@ -128,7 +132,7 @@ pub fn denied_chars(s: &str, denied: &str) -> ValidationResult<()> {
 pub fn is_email(s: &str) -> ValidationResult<()> {
     // Based on the HTML5 spec's "valid email address" definition but stricter
     const EMAIL_PATTERN: &str = r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$";
-    
+
     matches_pattern(s, EMAIL_PATTERN)
 }
 
@@ -136,14 +140,15 @@ pub fn is_email(s: &str) -> ValidationResult<()> {
 pub fn is_username(s: &str) -> ValidationResult<()> {
     // Allow alphanumeric, underscore and hyphen, 3-30 characters
     const USERNAME_PATTERN: &str = r"^[a-zA-Z0-9_-]{3,30}$";
-    
+
     matches_pattern(s, USERNAME_PATTERN)
 }
 
 /// Validate that a string is a valid UUID
 pub fn is_uuid(s: &str) -> ValidationResult<()> {
-    const UUID_PATTERN: &str = r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
-    
+    const UUID_PATTERN: &str =
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+
     matches_pattern_with_options(s, UUID_PATTERN, true, false, false)
 }
 
@@ -157,7 +162,7 @@ pub fn is_alphanumeric(s: &str) -> ValidationResult<()> {
             )));
         }
     }
-    
+
     Ok(())
 }
 
@@ -166,7 +171,7 @@ pub fn normalized_unicode(s: &str) -> ValidationResult<()> {
     let normalized = s.nfc().collect::<String>();
     if normalized != s {
         Err(ValidationError::InvalidEncoding(
-            "String is not in normalized Unicode form (NFC)".to_string()
+            "String is not in normalized Unicode form (NFC)".to_string(),
         ))
     } else {
         Ok(())
@@ -178,7 +183,8 @@ pub fn is_json(s: &str) -> ValidationResult<()> {
     match serde_json::from_str::<serde_json::Value>(s) {
         Ok(_) => Ok(()),
         Err(e) => Err(ValidationError::InvalidFormat(format!(
-            "Invalid JSON: {}", e
+            "Invalid JSON: {}",
+            e
         ))),
     }
 }
@@ -187,22 +193,23 @@ pub fn is_json(s: &str) -> ValidationResult<()> {
 pub fn is_hostname(s: &str) -> ValidationResult<()> {
     // Based on RFC 1123 hostname rules
     const HOSTNAME_PATTERN: &str = r"^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$";
-    
+
     // Check length
     if s.len() > 253 {
         return Err(ValidationError::TooLong(
-            "Hostname exceeds maximum length (253 characters)".to_string()
+            "Hostname exceeds maximum length (253 characters)".to_string(),
         ));
     }
-    
+
     // Check pattern
     matches_pattern(s, HOSTNAME_PATTERN)
 }
 
 /// Validate a string is a valid IPv4 address
 pub fn is_ipv4(s: &str) -> ValidationResult<()> {
-    const IPV4_PATTERN: &str = r"^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
-    
+    const IPV4_PATTERN: &str =
+        r"^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$";
+
     matches_pattern(s, IPV4_PATTERN)
 }
 
@@ -210,7 +217,7 @@ pub fn is_ipv4(s: &str) -> ValidationResult<()> {
 pub fn is_ipv6(s: &str) -> ValidationResult<()> {
     // This is a simplified pattern for IPv6 - a full compliant one would be much more complex
     const IPV6_PATTERN: &str = r"^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$";
-    
+
     matches_pattern(s, IPV6_PATTERN)
 }
 
@@ -220,7 +227,7 @@ pub fn is_ip(s: &str) -> ValidationResult<()> {
         Ok(())
     } else {
         Err(ValidationError::InvalidFormat(
-            "Not a valid IP address (neither IPv4 nor IPv6)".to_string()
+            "Not a valid IP address (neither IPv4 nor IPv6)".to_string(),
         ))
     }
 }
@@ -235,7 +242,7 @@ pub fn no_control_chars(s: &str) -> ValidationResult<()> {
             )));
         }
     }
-    
+
     Ok(())
 }
 
@@ -246,8 +253,8 @@ pub fn is_valid_utf8(s: &str) -> ValidationResult<()> {
     match std::str::from_utf8(s.as_bytes()) {
         Ok(_) => Ok(()),
         Err(_) => Err(ValidationError::InvalidEncoding(
-            "Invalid UTF-8 sequence".to_string()
-        ))
+            "Invalid UTF-8 sequence".to_string(),
+        )),
     }
 }
 

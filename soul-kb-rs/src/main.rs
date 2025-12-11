@@ -2,26 +2,20 @@
 // Main Entry Point for soul-kb-rs
 // Implements the SoulKBService gRPC server
 
-use tonic::{transport::Server, Request, Response, Status};
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use tonic::{Request, Response, Status, transport::Server};
 
 // Import validation module
 mod validation;
 use validation::{
-    validate_query,
-    validate_store_request,
-    validate_retrieve_request,
-    validate_core_value,
-    validate_store_value_request,
-    validate_value_id,
-    validate_value_name,
-    validate_ethics_check_request,
-    validate_min_priority
+    validate_core_value, validate_ethics_check_request, validate_min_priority, validate_query,
+    validate_retrieve_request, validate_store_request, validate_store_value_request,
+    validate_value_id, validate_value_name,
 };
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -31,26 +25,26 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    soul_kb_service_server::{SoulKbService, SoulKbServiceServer},
-    health_service_server::{HealthService, HealthServiceServer},
-    QueryRequest,
-    QueryResponse,
-    StoreRequest,
-    StoreResponse,
-    RetrieveRequest,
-    RetrieveResponse,
+    CoreValue,
+    EthicsCheckRequest,
+    EthicsCheckResponse,
+    GetValueRequest,
+    GetValueResponse,
     HealthRequest,
     HealthResponse,
+    ListValuesRequest,
+    ListValuesResponse,
+    QueryRequest,
+    QueryResponse,
+    RetrieveRequest,
+    RetrieveResponse,
+    StoreRequest,
+    StoreResponse,
     // Ethics and values types
     StoreValueRequest,
     StoreValueResponse,
-    GetValueRequest,
-    GetValueResponse,
-    ListValuesRequest,
-    ListValuesResponse,
-    EthicsCheckRequest,
-    EthicsCheckResponse,
-    CoreValue,
+    health_service_server::{HealthService, HealthServiceServer},
+    soul_kb_service_server::{SoulKbService, SoulKbServiceServer},
 };
 
 // Define the Soul KB Server Structure
@@ -66,7 +60,7 @@ impl SoulKbService for SoulKBServer {
         request: Request<QueryRequest>,
     ) -> Result<Response<QueryResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Soul-KB received QueryKB request: query={}, limit={}",
             req_data.query,
@@ -76,7 +70,10 @@ impl SoulKbService for SoulKBServer {
         // Validate query and limit
         if let Err(err) = validate_query(&req_data.query, req_data.limit) {
             log::warn!("Query validation failed: {}", err);
-            return Err(Status::invalid_argument(format!("Invalid query parameters: {}", err)));
+            return Err(Status::invalid_argument(format!(
+                "Invalid query parameters: {}",
+                err
+            )));
         }
 
         // --- QUERY STUB (Core Values/Identity) ---
@@ -86,7 +83,7 @@ impl SoulKbService for SoulKBServer {
         // 3. Getting mission statement and fundamental identity
         // 4. Returning moral compass and purpose for decision-making
         // Retrieves the agent's core values, mission statement, or long-term goals
-        
+
         // Stub: return mock identity/values data
         let results = vec![
             format!("Soul-KB stub core identity for query: '{}' - Value: Integrity, Goal: Maximum Utility, Mission: Serve Humanity", req_data.query).into_bytes(),
@@ -105,7 +102,10 @@ impl SoulKbService for SoulKBServer {
             },
         };
 
-        log::info!("Soul-KB query returned {} identity/values result(s)", results.len());
+        log::info!(
+            "Soul-KB query returned {} identity/values result(s)",
+            results.len()
+        );
 
         Ok(Response::new(reply))
     }
@@ -115,7 +115,7 @@ impl SoulKbService for SoulKBServer {
         request: Request<StoreRequest>,
     ) -> Result<Response<StoreResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Soul-KB received StoreFact request: key={}, value_size={} bytes",
             req_data.key,
@@ -126,14 +126,20 @@ impl SoulKbService for SoulKBServer {
         match validate_store_request(&req_data.key, &req_data.value, &req_data.metadata) {
             Ok((sanitized_key, sanitized_value, sanitized_metadata)) => {
                 // Use sanitized values in real implementation
-                log::info!("Validated store request: key={}, value_size={} bytes",
-                    sanitized_key, sanitized_value.len());
-                
+                log::info!(
+                    "Validated store request: key={}, value_size={} bytes",
+                    sanitized_key,
+                    sanitized_value.len()
+                );
+
                 // For now we just log the sanitized data since this is a stub implementation
-            },
+            }
             Err(err) => {
                 log::warn!("Store request validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid store request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid store request: {}",
+                    err
+                )));
             }
         }
 
@@ -144,7 +150,7 @@ impl SoulKbService for SoulKBServer {
         // 3. Storing long-term aspirational goals
         // 4. Applying high-level ethical constraints
         // Stores/updates foundational values, mission updates, or high-level ethical constraints
-        
+
         // Generate a stored ID
         let stored_id = format!("soul-{}", req_data.key);
 
@@ -171,7 +177,7 @@ impl SoulKbService for SoulKBServer {
         request: Request<RetrieveRequest>,
     ) -> Result<Response<RetrieveResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Soul-KB received Retrieve request: key={}, filters={:?}",
             req_data.key,
@@ -182,14 +188,20 @@ impl SoulKbService for SoulKBServer {
         match validate_retrieve_request(&req_data.key, &req_data.filters) {
             Ok((sanitized_key, sanitized_filters)) => {
                 // Use sanitized values in real implementation
-                log::info!("Validated retrieve request: key={}, filters={:?}",
-                    sanitized_key, sanitized_filters);
-                
+                log::info!(
+                    "Validated retrieve request: key={}, filters={:?}",
+                    sanitized_key,
+                    sanitized_filters
+                );
+
                 // For now we just log the sanitized data since this is a stub implementation
-            },
+            }
             Err(err) => {
                 log::warn!("Retrieve request validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid retrieve request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid retrieve request: {}",
+                    err
+                )));
             }
         }
 
@@ -200,7 +212,7 @@ impl SoulKbService for SoulKBServer {
         // 3. Retrieving foundational values or long-term goals
         // 4. Returning the stored identity value
         // For now, we return a stub response
-        
+
         // Stub: return mock identity data
         let value = format!("Soul-KB retrieved core value for key: '{}' - Value: Integrity, Goal: Maximum Utility, Mission: Serve Humanity", req_data.key).into_bytes();
 
@@ -209,7 +221,14 @@ impl SoulKbService for SoulKBServer {
             metadata: {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("kb_type".to_string(), "soul".to_string());
-                meta.insert("retrieved_at".to_string(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_string());
+                meta.insert(
+                    "retrieved_at".to_string(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        .to_string(),
+                );
                 meta.insert("state_type".to_string(), "identity".to_string());
                 meta
             },
@@ -236,19 +255,22 @@ impl SoulKbService for SoulKBServer {
         request: Request<StoreValueRequest>,
     ) -> Result<Response<StoreValueResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate store value request
         let validated_req = match validate_store_value_request(&req) {
             Ok(validated) => validated,
             Err(err) => {
                 log::warn!("Core value validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid core value: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid core value: {}",
+                    err
+                )));
             }
         };
-        
+
         let value = validated_req.value.unwrap_or_default();
         log::info!("Soul-KB StoreValue: name={}", value.name);
-        
+
         Ok(Response::new(StoreValueResponse {
             success: true,
             value_id: format!("soul-value-{}", uuid::Uuid::new_v4()),
@@ -260,37 +282,51 @@ impl SoulKbService for SoulKBServer {
         request: Request<GetValueRequest>,
     ) -> Result<Response<GetValueResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate value ID and name
         let sanitized_id = match validate_value_id(&req.value_id) {
             Ok(id) => id,
             Err(err) => {
                 log::warn!("Value ID validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid value ID: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid value ID: {}",
+                    err
+                )));
             }
         };
-        
+
         let sanitized_name = match validate_value_name(&req.name) {
             Ok(name) => name,
             Err(err) => {
                 log::warn!("Value name validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid value name: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid value name: {}",
+                    err
+                )));
             }
         };
-        
-        log::info!("Soul-KB GetValue: id={}, name={}", sanitized_id, sanitized_name);
-        
+
+        log::info!(
+            "Soul-KB GetValue: id={}, name={}",
+            sanitized_id,
+            sanitized_name
+        );
+
         // Create value (would be from database in real implementation)
         let core_value = CoreValue {
             value_id: sanitized_id,
-            name: if req.name.is_empty() { "user_safety".to_string() } else { sanitized_name },
+            name: if req.name.is_empty() {
+                "user_safety".to_string()
+            } else {
+                sanitized_name
+            },
             description: "Core ethical value".to_string(),
             priority: 3, // PRIORITY_CRITICAL
             constraint: "Must not harm users".to_string(),
             is_active: true,
             metadata: HashMap::new(),
         };
-        
+
         // Validate the generated value (defense in depth)
         let validated_value = match validate_core_value(&core_value) {
             Ok(validated) => validated,
@@ -299,7 +335,7 @@ impl SoulKbService for SoulKBServer {
                 return Err(Status::internal(format!("Error in core value: {}", err)));
             }
         };
-        
+
         Ok(Response::new(GetValueResponse {
             found: true,
             value: Some(validated_value),
@@ -311,18 +347,24 @@ impl SoulKbService for SoulKBServer {
         request: Request<ListValuesRequest>,
     ) -> Result<Response<ListValuesResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate min priority
         let validated_min_priority = match validate_min_priority(req.min_priority) {
             Ok(priority) => priority,
             Err(err) => {
                 log::warn!("Min priority validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid min priority: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid min priority: {}",
+                    err
+                )));
             }
         };
-        
-        log::info!("Soul-KB ListValues: min_priority={}", validated_min_priority);
-        
+
+        log::info!(
+            "Soul-KB ListValues: min_priority={}",
+            validated_min_priority
+        );
+
         Ok(Response::new(ListValuesResponse {
             values: vec![
                 CoreValue {
@@ -353,29 +395,37 @@ impl SoulKbService for SoulKBServer {
         request: Request<EthicsCheckRequest>,
     ) -> Result<Response<EthicsCheckResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate ethics check request
         let validated_req = match validate_ethics_check_request(&req) {
             Ok(validated) => validated,
             Err(err) => {
                 log::warn!("Ethics check validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid ethics check request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid ethics check request: {}",
+                    err
+                )));
             }
         };
-        
+
         log::info!("Soul-KB CheckEthics: action={}", validated_req.action);
-        
+
         // Simple ethics check - block destructive actions
-        let blocked_actions = ["delete_user", "expose_pii", "bypass_auth", "disable_logging"];
+        let blocked_actions = [
+            "delete_user",
+            "expose_pii",
+            "bypass_auth",
+            "disable_logging",
+        ];
         let action_lower = validated_req.action.to_lowercase();
-        
+
         let allowed = !blocked_actions.iter().any(|b| action_lower.contains(b));
         let violated = if !allowed {
             vec!["user_safety".to_string(), "data_privacy".to_string()]
         } else {
             vec![]
         };
-        
+
         Ok(Response::new(EthicsCheckResponse {
             allowed,
             violated_values: violated,
@@ -395,9 +445,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Read address from environment variable or use the default port 50061
-    let addr_str = env::var("SOUL_KB_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:50061".to_string());
-    
+    let addr_str = env::var("SOUL_KB_ADDR").unwrap_or_else(|_| "0.0.0.0:50061".to_string());
+
     // Parse the address, handling both "0.0.0.0:50061" and "http://127.0.0.1:50061" formats
     let addr: SocketAddr = if addr_str.starts_with("http://") {
         addr_str
@@ -428,7 +477,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tonic::async_trait]
 impl HealthService for SoulKBServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut dependencies = HashMap::new();
         dependencies.insert("kb_storage".to_string(), "ACTIVE".to_string());

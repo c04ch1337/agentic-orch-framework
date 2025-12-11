@@ -2,18 +2,18 @@
 // Main Entry Point for llm-service-rs
 // Implements the LLMService gRPC server
 
-use tonic::{transport::Server, Request, Response, Status};
-use std::sync::Arc;
-use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
+use config_rs;
 use dotenv::dotenv;
 use once_cell::sync::Lazy;
-use config_rs;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Instant;
+use tonic::{transport::Server, Request, Response, Status};
 
 mod llm_client;
-mod secrets_client;  // Add secrets client module
+mod secrets_client; // Add secrets client module
 use llm_client::LLMClient;
 
 // Track service start time for uptime reporting
@@ -25,17 +25,10 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    llm_service_server::{LlmService, LlmServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
-    GenerateRequest,
-    GenerateResponse,
-    LlmProcessRequest,
-    LlmProcessResponse,
-    HealthRequest,
-    HealthResponse,
-    CompileContextRequest,
-    CompiledContextResponse,
-    ContextSummarySchema,
+    llm_service_server::{LlmService, LlmServiceServer},
+    CompileContextRequest, CompiledContextResponse, ContextSummarySchema, GenerateRequest,
+    GenerateResponse, HealthRequest, HealthResponse, LlmProcessRequest, LlmProcessResponse,
     RawContextData,
 };
 
@@ -62,8 +55,11 @@ impl LlmService for LlmServer {
         request: Request<GenerateRequest>,
     ) -> Result<Response<GenerateResponse>, Status> {
         let req_data = request.into_inner();
-        
-        log::info!("Received GenerateText request: prompt length={}", req_data.prompt.len());
+
+        log::info!(
+            "Received GenerateText request: prompt length={}",
+            req_data.prompt.len()
+        );
 
         // Determine system prompt based on parameters or context
         // In a real system, this would be more sophisticated
@@ -79,7 +75,11 @@ impl LlmService for LlmServer {
         };
 
         // Call LLM Client with improved error handling
-        match self.client.generate_text_string(&req_data.prompt, system_prompt).await {
+        match self
+            .client
+            .generate_text_string(&req_data.prompt, system_prompt)
+            .await
+        {
             Ok(text) => {
                 let reply = GenerateResponse {
                     text,
@@ -93,11 +93,14 @@ impl LlmService for LlmServer {
             }
             Err(e) => {
                 log::error!("LLM generation failed: {}", e);
-                
+
                 // Classify error type for better client feedback
                 let (status, error_type) = if e.contains("Rate limit exceeded") {
                     ("rate_limited", "RATE_LIMITED")
-                } else if e.contains("Invalid request") || e.contains("Unauthorized") || e.contains("Forbidden") {
+                } else if e.contains("Invalid request")
+                    || e.contains("Unauthorized")
+                    || e.contains("Forbidden")
+                {
                     ("client_error", "CLIENT_ERROR")
                 } else if e.contains("Server error") {
                     ("server_error", "SERVER_ERROR")
@@ -106,7 +109,7 @@ impl LlmService for LlmServer {
                 } else {
                     ("error", "UNKNOWN_ERROR")
                 };
-                
+
                 // Return a failure response
                 let reply = GenerateResponse {
                     text: format!("Error generating text: {}", e),
@@ -136,9 +139,12 @@ impl LlmService for LlmServer {
         request: Request<LlmProcessRequest>,
     ) -> Result<Response<LlmProcessResponse>, Status> {
         let req_data = request.into_inner();
-        
-        log::info!("Received Process request: operation={}, text length={}", 
-            req_data.operation, req_data.text.len());
+
+        log::info!(
+            "Received Process request: operation={}, text length={}",
+            req_data.operation,
+            req_data.text.len()
+        );
 
         // --- LLM PROCESSING STUB ---
         // In a real scenario, this would involve:
@@ -146,7 +152,7 @@ impl LlmService for LlmServer {
         // 2. Applying NLP operations (summarization, translation, etc.)
         // 3. Returning the processed result
         // For now, we return a stub response
-        
+
         let result = format!(
             "LLM processed text (operation: {}): \"{}\"",
             req_data.operation, req_data.text
@@ -170,8 +176,11 @@ impl LlmService for LlmServer {
         request: Request<LlmProcessRequest>,
     ) -> Result<Response<LlmProcessResponse>, Status> {
         let req_data = request.into_inner();
-        
-        log::info!("Received EmbedText request: text length={}", req_data.text.len());
+
+        log::info!(
+            "Received EmbedText request: text length={}",
+            req_data.text.len()
+        );
 
         // --- LLM EMBEDDING STUB ---
         // In a real scenario, this would involve:
@@ -179,7 +188,7 @@ impl LlmService for LlmServer {
         // 2. Converting text to a vector representation
         // 3. Returning the embedding vector
         // For now, we return a stub response with a string representation
-        
+
         // Stub embedding vector representation (1536 dimensions, all 0.0 for now)
         let embedding_vec = vec![0.0f32; 1536];
         let embedding_vector = serde_json::to_string(&embedding_vec).unwrap_or_default();
@@ -188,7 +197,10 @@ impl LlmService for LlmServer {
             result: embedding_vector,
             metadata: {
                 let mut meta = std::collections::HashMap::new();
-                meta.insert("embedding_model".to_string(), "stub-embedding-model".to_string());
+                meta.insert(
+                    "embedding_model".to_string(),
+                    "stub-embedding-model".to_string(),
+                );
                 meta.insert("dimensions".to_string(), "1536".to_string());
                 meta.insert("status".to_string(), "success".to_string());
                 meta
@@ -203,7 +215,7 @@ impl LlmService for LlmServer {
         request: Request<CompileContextRequest>,
     ) -> Result<Response<CompiledContextResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Received CompileContext request: request_id={}, schema_id={}",
             req_data.request_id,
@@ -241,15 +253,22 @@ Be selective and precise in what you include.",
 
         // Prepare the prompt content from raw data
         // Convert raw context entries to a readable format
-        let mut raw_content = format!("User ID: {}\nQuery: {}\n\nContext Entries:\n",
-            req_data.raw_data.user_id,
-            req_data.raw_data.query);
-        
+        let mut raw_content = format!(
+            "User ID: {}\nQuery: {}\n\nContext Entries:\n",
+            req_data.raw_data.user_id, req_data.raw_data.query
+        );
+
         for (i, entry) in req_data.raw_data.entries.iter().enumerate() {
-            raw_content.push_str(&format!("Entry {}:\n  Source: {}\n  Content: {}\n  Relevance: {}\n  Timestamp: {}\n\n",
-                i+1, entry.source_kb, entry.content, entry.relevance_score, entry.timestamp));
+            raw_content.push_str(&format!(
+                "Entry {}:\n  Source: {}\n  Content: {}\n  Relevance: {}\n  Timestamp: {}\n\n",
+                i + 1,
+                entry.source_kb,
+                entry.content,
+                entry.relevance_score,
+                entry.timestamp
+            ));
         }
-        
+
         // Add any metadata as additional context
         if !req_data.raw_data.metadata.is_empty() {
             raw_content.push_str("Additional Metadata:\n");
@@ -259,14 +278,18 @@ Be selective and precise in what you include.",
         }
 
         // Call LLM Client with the prepared prompt and system prompt
-        match self.client.generate_text_string(&raw_content, system_prompt).await {
+        match self
+            .client
+            .generate_text_string(&raw_content, system_prompt)
+            .await
+        {
             Ok(json_text) => {
                 // Try to validate the response is proper JSON
                 match serde_json::from_str::<serde_json::Value>(&json_text) {
                     Ok(_) => {
                         // Successfully parsed as JSON
                         let tokens_used = json_text.split_whitespace().count() as i32;
-                        
+
                         let reply = CompiledContextResponse {
                             request_id: req_data.request_id,
                             compiled_json: json_text,
@@ -274,39 +297,45 @@ Be selective and precise in what you include.",
                             metadata: {
                                 let mut meta = std::collections::HashMap::new();
                                 meta.insert("status".to_string(), "success".to_string());
-                                meta.insert("schema_id".to_string(), req_data.schema.schema_id.clone());
+                                meta.insert(
+                                    "schema_id".to_string(),
+                                    req_data.schema.schema_id.clone(),
+                                );
                                 meta
                             },
                         };
                         Ok(Response::new(reply))
-                    },
+                    }
                     Err(e) => {
                         // The response wasn't valid JSON, return an error
                         log::error!("Generated text is not valid JSON: {}", e);
-                        
+
                         // Return a failure response
                         let reply = CompiledContextResponse {
                             request_id: req_data.request_id,
-                            compiled_json: "{}".to_string(),  // Empty JSON object
+                            compiled_json: "{}".to_string(), // Empty JSON object
                             tokens_used: 0,
                             metadata: {
                                 let mut meta = std::collections::HashMap::new();
                                 meta.insert("status".to_string(), "format_error".to_string());
-                                meta.insert("error".to_string(), format!("Invalid JSON format: {}", e));
+                                meta.insert(
+                                    "error".to_string(),
+                                    format!("Invalid JSON format: {}", e),
+                                );
                                 meta
                             },
                         };
                         Ok(Response::new(reply))
                     }
                 }
-            },
+            }
             Err(e) => {
                 log::error!("Context compilation failed: {}", e);
-                
+
                 // Return a failure response
                 let reply = CompiledContextResponse {
                     request_id: req_data.request_id,
-                    compiled_json: "{}".to_string(),  // Empty JSON object
+                    compiled_json: "{}".to_string(), // Empty JSON object
                     tokens_used: 0,
                     metadata: {
                         let mut meta = std::collections::HashMap::new();
@@ -349,7 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if client.is_mock() {
                 log::warn!("Secrets service running in mock mode - API keys will be loaded from environment variables");
             }
-        },
+        }
         Err(e) => {
             log::warn!("Failed to connect to secrets service: {}. Using environment variables for API keys.", e);
         }
@@ -375,27 +404,43 @@ impl HealthService for LlmServer {
         _request: Request<HealthRequest>,
     ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
-        
+
         let mut dependencies = HashMap::new();
         // Check if LLM client is configured
         // Use async check_api_key method
         let llm_configured = self.client.check_api_key().await;
-        dependencies.insert("llm_provider".to_string(),
-            if llm_configured { "CONFIGURED".to_string() } else { "NOT_CONFIGURED".to_string() });
+        dependencies.insert(
+            "llm_provider".to_string(),
+            if llm_configured {
+                "CONFIGURED".to_string()
+            } else {
+                "NOT_CONFIGURED".to_string()
+            },
+        );
 
         // Add secrets service as a dependency
         let secrets_healthy = match secrets_client::SecretsClient::new().await {
             Ok(client) => client.is_healthy().await,
             Err(_) => false,
         };
-        dependencies.insert("secrets_service".to_string(),
-            if secrets_healthy { "HEALTHY".to_string() } else { "UNHEALTHY".to_string() });
+        dependencies.insert(
+            "secrets_service".to_string(),
+            if secrets_healthy {
+                "HEALTHY".to_string()
+            } else {
+                "UNHEALTHY".to_string()
+            },
+        );
 
         Ok(Response::new(HealthResponse {
             healthy: llm_configured,
             service_name: "llm-service".to_string(),
             uptime_seconds: uptime,
-            status: if llm_configured { "SERVING".to_string() } else { "DEGRADED".to_string() },
+            status: if llm_configured {
+                "SERVING".to_string()
+            } else {
+                "DEGRADED".to_string()
+            },
             dependencies,
         }))
     }

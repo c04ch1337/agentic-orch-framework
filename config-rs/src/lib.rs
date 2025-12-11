@@ -6,11 +6,11 @@ use std::env;
 use std::net::SocketAddr;
 
 /// Get service port from environment variables with proper fallback
-/// 
+///
 /// # Arguments
 /// * `service_name` - The name of the service (e.g., "ORCHESTRATOR", "LLM")
 /// * `default_port` - The default port to use if not specified in environment
-/// 
+///
 /// # Returns
 /// The port number to use for the service
 pub fn get_service_port(service_name: &str, default_port: u16) -> u16 {
@@ -19,22 +19,26 @@ pub fn get_service_port(service_name: &str, default_port: u16) -> u16 {
         .unwrap_or_else(|_| default_port.to_string())
         .parse::<u16>()
         .unwrap_or_else(|_| {
-            log::warn!("Invalid port in {}, using default {}", var_name, default_port);
+            log::warn!(
+                "Invalid port in {}, using default {}",
+                var_name,
+                default_port
+            );
             default_port
         })
 }
 
 /// Create a SocketAddr for binding a service
-/// 
+///
 /// # Arguments
 /// * `service_name` - The name of the service (e.g., "ORCHESTRATOR", "LLM")
 /// * `default_port` - The default port to use if not specified in environment
-/// 
+///
 /// # Returns
 /// A SocketAddr configured with the appropriate bind address and port
 pub fn get_bind_address(service_name: &str, default_port: u16) -> SocketAddr {
     let var_name = format!("{}_SERVICE_ADDR", service_name.to_uppercase());
-    
+
     // Check if there's a full address override
     if let Ok(addr_str) = env::var(&var_name) {
         if let Ok(addr) = addr_str.parse::<SocketAddr>() {
@@ -52,46 +56,46 @@ pub fn get_bind_address(service_name: &str, default_port: u16) -> SocketAddr {
             log::warn!("Invalid address format in {}, using default", var_name);
         }
     }
-    
+
     // Use the port from environment or default
     let port = get_service_port(service_name, default_port);
     format!("0.0.0.0:{}", port).parse().unwrap()
 }
 
 /// Get client connection address for connecting to a service
-/// 
+///
 /// # Arguments
 /// * `service_name` - The name of the service (e.g., "ORCHESTRATOR", "LLM")
 /// * `default_port` - The default port to use if not specified in environment
 /// * `host` - Optional host to use if not specified in environment (default: "localhost")
-/// 
+///
 /// # Returns
 /// A connection string for the client to connect to the service
 pub fn get_client_address(service_name: &str, default_port: u16, host: Option<&str>) -> String {
     let addr_var_name = format!("{}_SERVICE_ADDR", service_name.to_uppercase());
     let port_var_name = format!("{}_SERVICE_PORT", service_name.to_uppercase());
-    
+
     // First check if there's a full address override
     if let Ok(addr) = env::var(&addr_var_name) {
         return addr;
     }
-    
+
     // Then check for port override
     let port = env::var(&port_var_name)
         .unwrap_or_else(|_| default_port.to_string())
         .parse::<u16>()
         .unwrap_or(default_port);
-    
+
     // Build the address with the host (default to localhost if not provided)
     let host = host.unwrap_or("localhost");
     format!("http://{}:{}", host, port)
 }
 
 /// Get service name for logging and monitoring
-/// 
+///
 /// # Arguments
 /// * `service_name` - The name of the service (e.g., "ORCHESTRATOR", "LLM")
-/// 
+///
 /// # Returns
 /// A formatted service name suitable for logging
 pub fn get_formatted_service_name(service_name: &str) -> String {
@@ -130,10 +134,10 @@ pub struct ServiceDefinition {
 }
 
 /// Get default port for a specific service
-/// 
+///
 /// # Arguments
 /// * `service_name` - The name of the service (e.g., "ORCHESTRATOR", "LLM")
-/// 
+///
 /// # Returns
 /// The default port for the service
 pub fn get_default_port(service_name: &str) -> u16 {
@@ -293,19 +297,31 @@ mod tests {
     fn test_get_client_address() {
         // Test with full address override
         std::env::set_var("TEST_SERVICE_ADDR", "http://example.com:9000");
-        assert_eq!(get_client_address("TEST", 8000, None), "http://example.com:9000");
+        assert_eq!(
+            get_client_address("TEST", 8000, None),
+            "http://example.com:9000"
+        );
 
-        // Test with port override 
+        // Test with port override
         std::env::remove_var("TEST_SERVICE_ADDR");
         std::env::set_var("TEST_SERVICE_PORT", "9000");
-        assert_eq!(get_client_address("TEST", 8000, None), "http://localhost:9000");
+        assert_eq!(
+            get_client_address("TEST", 8000, None),
+            "http://localhost:9000"
+        );
 
         // Test with default
         std::env::remove_var("UNKNOWN_SERVICE_ADDR");
         std::env::remove_var("UNKNOWN_SERVICE_PORT");
-        assert_eq!(get_client_address("UNKNOWN", 8000, None), "http://localhost:8000");
+        assert_eq!(
+            get_client_address("UNKNOWN", 8000, None),
+            "http://localhost:8000"
+        );
 
         // Test with custom host
-        assert_eq!(get_client_address("UNKNOWN", 8000, Some("service.local")), "http://service.local:8000");
+        assert_eq!(
+            get_client_address("UNKNOWN", 8000, Some("service.local")),
+            "http://service.local:8000"
+        );
     }
 }

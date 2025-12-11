@@ -5,24 +5,22 @@
 //! It wraps the core functionality from error-handling-rs.
 
 use error_handling_rs::circuit_breaker::{
-    CircuitBreaker as CoreCircuitBreaker, 
-    CircuitBreakerConfig,
+    CircuitBreaker as CoreCircuitBreaker, CircuitBreakerConfig, CircuitHealth,
     CircuitState as CoreCircuitState,
-    CircuitHealth,
 };
 
-use std::sync::Arc;
-use metrics::{counter, gauge};
-use std::time::Duration;
 use log;
+use metrics::{counter, gauge};
+use std::sync::Arc;
+use std::time::Duration;
 
 // Re-export the CircuitState enum with the same variants as before
 // for backward compatibility with existing code
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CircuitState {
-    Closed,      // Normal operation
-    Open,        // Blocking all requests
-    HalfOpen,    // Testing if service recovered
+    Closed,   // Normal operation
+    Open,     // Blocking all requests
+    HalfOpen, // Testing if service recovered
 }
 
 // Conversion between our CircuitState and the core library's CircuitState
@@ -50,19 +48,19 @@ impl CircuitBreaker {
     pub fn new() -> Self {
         // Create a configuration with appropriate thresholds
         let config = CircuitBreakerConfig {
-            window_size: 100,                   // Track last 100 requests
-            error_threshold: 0.5,               // 50% error rate to trip
-            minimum_request_threshold: 5,       // Need at least 5 requests before considering
+            window_size: 100,                          // Track last 100 requests
+            error_threshold: 0.5,                      // 50% error rate to trip
+            minimum_request_threshold: 5, // Need at least 5 requests before considering
             reset_timeout: Duration::from_secs(30), // 30s timeout in open state
-            half_open_success_threshold: 3,     // 3 successful requests to close circuit
-            half_open_max_calls: 1,             // Allow 1 call in half-open state
-            use_error_percentage: true,         // Use percentage threshold
+            half_open_success_threshold: 3, // 3 successful requests to close circuit
+            half_open_max_calls: 1,       // Allow 1 call in half-open state
+            use_error_percentage: true,   // Use percentage threshold
             max_backoff_time: Duration::from_secs(60), // Max 60s backoff
         };
-        
+
         // Create the core circuit breaker with dashboard monitoring enabled
         let core = CoreCircuitBreaker::new("data-router", Some(config));
-        
+
         // Add health state change callback
         let mut core = core.clone();
         core.set_state_change_callback(|service, old_state, new_state, health| {
@@ -73,7 +71,7 @@ impl CircuitBreaker {
                 old_state,
                 new_state
             );
-            
+
             // Record metrics
             gauge!(
                 &format!("circuit_breaker.{}.state", service),
@@ -83,27 +81,30 @@ impl CircuitBreaker {
                     CoreCircuitState::HalfOpen => 0.5,
                 }
             );
-            
+
             // Record error rate
-            gauge!(&format!("circuit_breaker.{}.error_rate", service), health.error_rate);
+            gauge!(
+                &format!("circuit_breaker.{}.error_rate", service),
+                health.error_rate
+            );
         });
-        
+
         Self {
             core: Arc::new(core),
             service_name: "data-router".to_string(),
         }
     }
-    
+
     /// Creates a circuit breaker with a custom configuration
     pub fn with_config(config: CircuitBreakerConfig) -> Self {
         let core = CoreCircuitBreaker::new("data-router", Some(config));
-        
+
         Self {
             core: Arc::new(core),
             service_name: "data-router".to_string(),
         }
     }
-    
+
     /// Check if a request to a service is allowed
     pub fn is_allowed(&self, service_name: &str) -> bool {
         // Delegate to core implementation
@@ -114,7 +115,7 @@ impl CircuitBreaker {
     pub fn record_success(&self, service_name: &str) {
         // Delegate to core implementation
         self.core.record_success(service_name);
-        
+
         // Record metric
         counter!(&format!("circuit_breaker.{}.success", service_name), 1);
     }
@@ -123,7 +124,7 @@ impl CircuitBreaker {
     pub fn record_failure(&self, service_name: &str) {
         // Delegate to core implementation
         self.core.record_failure(service_name);
-        
+
         // Record metric
         counter!(&format!("circuit_breaker.{}.failure", service_name), 1);
     }
@@ -139,7 +140,7 @@ impl CircuitBreaker {
     pub fn get_stats(&self, service_name: &str) -> Option<(CircuitState, u32, u32)> {
         // Get health from core implementation
         let health = self.core.get_health(service_name);
-        
+
         // Convert to the format expected by existing code
         Some((
             CircuitState::from(health.state),
@@ -147,27 +148,31 @@ impl CircuitBreaker {
             health.success_count as u32,
         ))
     }
-    
+
     /// Get detailed health for a service
     pub fn get_health(&self, service_name: &str) -> CircuitHealth {
         self.core.get_health(service_name)
     }
-    
+
     /// Execute an async function with circuit breaker protection
-    pub async fn execute<F, T, E>(&self, service_name: &str, operation: F) -> Result<T, error_handling_rs::types::Error>
+    pub async fn execute<F, T, E>(
+        &self,
+        service_name: &str,
+        operation: F,
+    ) -> Result<T, error_handling_rs::types::Error>
     where
         F: std::future::Future<Output = Result<T, E>>,
         E: std::error::Error + 'static,
     {
         self.core.execute_async(service_name, operation).await
     }
-    
+
     /// Reset a circuit to closed state (for testing/admin purposes)
     pub fn reset(&self, service_name: &str) {
         self.core.reset(service_name);
         log::info!("Circuit manually reset for service: {}", service_name);
     }
-    
+
     /// Gets all circuit names being tracked
     pub fn get_circuit_names(&self) -> Vec<String> {
         self.core.get_circuit_names()
@@ -205,23 +210,23 @@ impl<T> ProtectedServiceClient<T> {
             circuit_breaker,
         }
     }
-    
+
     pub fn set_client(&mut self, client: T) {
         self.client = Some(client);
     }
-    
+
     pub fn get_client(&self) -> Option<&T> {
         self.client.as_ref()
     }
-    
+
     pub fn is_allowed(&self) -> bool {
         self.circuit_breaker.is_allowed(&self.service_name)
     }
-    
+
     pub fn record_success(&self) {
         self.circuit_breaker.record_success(&self.service_name);
     }
-    
+
     pub fn record_failure(&self) {
         self.circuit_breaker.record_failure(&self.service_name);
     }

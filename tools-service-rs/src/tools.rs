@@ -16,13 +16,7 @@ use async_trait::async_trait;
 use log::{info, warn};
 
 use crate::tool_manager::{
-    Capability,
-    ParameterDefinition,
-    Tool,
-    ToolContext,
-    ToolManagerError,
-    ToolMetadata,
-    ToolResult,
+    Capability, ParameterDefinition, Tool, ToolContext, ToolManagerError, ToolMetadata, ToolResult,
     TOOL_MANAGER,
 };
 
@@ -86,7 +80,10 @@ impl Tool for ReadFileTool {
         &self.metadata
     }
 
-    fn validate_parameters(&self, parameters: &HashMap<String, String>) -> Result<(), ToolManagerError> {
+    fn validate_parameters(
+        &self,
+        parameters: &HashMap<String, String>,
+    ) -> Result<(), ToolManagerError> {
         let path = match parameters.get("path") {
             Some(path) => path,
             None => {
@@ -115,7 +112,9 @@ impl Tool for ReadFileTool {
                 "true" | "false" => {}
                 _ => {
                     return Err(ToolManagerError::ValidationError(
-                        ToolValidationError::Other("line_numbers must be 'true' or 'false'".to_string()),
+                        ToolValidationError::Other(
+                            "line_numbers must be 'true' or 'false'".to_string(),
+                        ),
                     ));
                 }
             }
@@ -134,9 +133,8 @@ impl Tool for ReadFileTool {
             .map(|v| v == "true")
             .unwrap_or(true);
 
-        let content = fs::read_to_string(&path).map_err(|e| {
-            ToolManagerError::ExecutionError(format!("Failed to read file: {}", e))
-        })?;
+        let content = fs::read_to_string(&path)
+            .map_err(|e| ToolManagerError::ExecutionError(format!("Failed to read file: {}", e)))?;
 
         let result = if line_numbers {
             content
@@ -152,7 +150,10 @@ impl Tool for ReadFileTool {
         let duration_ms = start_time.elapsed().as_millis() as u64;
         let mut metadata = HashMap::new();
         metadata.insert("path".to_string(), path);
-        metadata.insert("line_count".to_string(), content.lines().count().to_string());
+        metadata.insert(
+            "line_count".to_string(),
+            content.lines().count().to_string(),
+        );
         metadata.insert("execution_time_ms".to_string(), duration_ms.to_string());
 
         Ok(ToolResult {
@@ -231,7 +232,10 @@ impl Tool for WriteFileTool {
         &self.metadata
     }
 
-    fn validate_parameters(&self, parameters: &HashMap<String, String>) -> Result<(), ToolManagerError> {
+    fn validate_parameters(
+        &self,
+        parameters: &HashMap<String, String>,
+    ) -> Result<(), ToolManagerError> {
         let path = match parameters.get("path") {
             Some(path) => path,
             None => {
@@ -405,7 +409,10 @@ impl Tool for ExecuteCodeTool {
         &self.metadata
     }
 
-    fn validate_parameters(&self, parameters: &HashMap<String, String>) -> Result<(), ToolManagerError> {
+    fn validate_parameters(
+        &self,
+        parameters: &HashMap<String, String>,
+    ) -> Result<(), ToolManagerError> {
         let language = match parameters.get("language") {
             Some(lang) => lang,
             None => {
@@ -478,10 +485,7 @@ impl Tool for ExecuteCodeTool {
 
         let file_path = temp_dir.join(file_name);
         fs::write(&file_path, &code).map_err(|e| {
-            ToolManagerError::ExecutionError(format!(
-                "Failed to write temporary code file: {}",
-                e
-            ))
+            ToolManagerError::ExecutionError(format!("Failed to write temporary code file: {}", e))
         })?;
 
         let (cmd, args) = match language.as_str() {
@@ -619,7 +623,10 @@ impl Tool for WebSearchTool {
         &self.metadata
     }
 
-    fn validate_parameters(&self, parameters: &HashMap<String, String>) -> Result<(), ToolManagerError> {
+    fn validate_parameters(
+        &self,
+        parameters: &HashMap<String, String>,
+    ) -> Result<(), ToolManagerError> {
         let query = match parameters.get("query") {
             Some(q) => q,
             None => {
@@ -645,9 +652,7 @@ impl Tool for WebSearchTool {
             let num_val = num.parse::<u32>().unwrap_or(10);
             if num_val < 1 || num_val > 50 {
                 return Err(ToolManagerError::ValidationError(
-                    ToolValidationError::Other(
-                        "num_results must be between 1 and 50".to_string(),
-                    ),
+                    ToolValidationError::Other("num_results must be between 1 and 50".to_string()),
                 ));
             }
         }
@@ -681,7 +686,8 @@ impl Tool for WebSearchTool {
                     metadata.insert("execution_time_ms".to_string(), duration_ms.to_string());
                     metadata.insert("source".to_string(), "serpapi".to_string());
 
-                    let formatted = format_search_results_from_response(&search_response, num_results);
+                    let formatted =
+                        format_search_results_from_response(&search_response, num_results);
 
                     Ok(ToolResult {
                         success: true,

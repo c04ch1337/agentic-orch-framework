@@ -1,18 +1,16 @@
 // heart-kb-rs/src/validation.rs
 // Input validation for Heart KB Service (emotion/sentiment)
 
+use crate::agi_core::{Sentiment, SentimentFact};
 use input_validation_rs::{
+    ValidationResult,
+    sanitizers::StringSanitizer,
     validate,
     validators::{
-        string::StringValidation,
-        numeric::NumericValidation,
-        security::SecurityValidation,
+        numeric::NumericValidation, security::SecurityValidation, string::StringValidation,
     },
-    sanitizers::StringSanitizer,
-    ValidationResult,
 };
 use std::collections::HashMap;
-use crate::agi_core::{SentimentFact, Sentiment};
 
 // Maximum allowed sizes
 const MAX_QUERY_LENGTH: usize = 2048; // 2KB for queries
@@ -58,7 +56,7 @@ pub fn validate_key(key: &str) -> ValidationResult<String> {
         SecurityValidation::no_path_traversal(),
         SecurityValidation::no_code_injection()
     )?;
-    
+
     // Sanitize for safe usage
     let sanitized = StringSanitizer::sanitize_identifier(key);
     Ok(sanitized)
@@ -70,12 +68,15 @@ pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
     if value.is_empty() {
         return Err("Value cannot be empty".to_string());
     }
-    
+
     if value.len() > MAX_VALUE_LENGTH {
-        return Err(format!("Value too large: {} bytes, max allowed: {} bytes", 
-            value.len(), MAX_VALUE_LENGTH));
+        return Err(format!(
+            "Value too large: {} bytes, max allowed: {} bytes",
+            value.len(),
+            MAX_VALUE_LENGTH
+        ));
     }
-    
+
     // If it's a text value, attempt to validate it as UTF-8
     if let Ok(text) = std::str::from_utf8(value) {
         // Validate for security issues if it's text
@@ -85,25 +86,30 @@ pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
             SecurityValidation::no_command_injection(),
             SecurityValidation::no_script_tags()
         )?;
-        
+
         // Return sanitized text as bytes
         return Ok(StringSanitizer::sanitize(text).into_bytes());
     }
-    
+
     // For binary data, just verify it's within size limits
     Ok(value.to_vec())
 }
 
 /// Validates request filters (key-value pairs)
-pub fn validate_filters(filters: &HashMap<String, String>) -> ValidationResult<HashMap<String, String>> {
+pub fn validate_filters(
+    filters: &HashMap<String, String>,
+) -> ValidationResult<HashMap<String, String>> {
     let mut sanitized_filters = HashMap::new();
-    
+
     // Check number of filters
     if filters.len() > MAX_FILTER_COUNT {
-        return Err(format!("Too many filters: {}, max allowed: {}", 
-            filters.len(), MAX_FILTER_COUNT));
+        return Err(format!(
+            "Too many filters: {}, max allowed: {}",
+            filters.len(),
+            MAX_FILTER_COUNT
+        ));
     }
-    
+
     // Validate each filter key-value pair
     for (key, value) in filters {
         // Validate key
@@ -114,7 +120,7 @@ pub fn validate_filters(filters: &HashMap<String, String>) -> ValidationResult<H
             StringValidation::alphanumeric_with_underscore(),
             SecurityValidation::no_code_injection()
         )?;
-        
+
         // Validate value
         validate!(
             value,
@@ -123,31 +129,38 @@ pub fn validate_filters(filters: &HashMap<String, String>) -> ValidationResult<H
             SecurityValidation::no_sql_injection(),
             SecurityValidation::no_script_tags()
         )?;
-        
+
         // Sanitize and store
         let sanitized_key = StringSanitizer::sanitize_identifier(key);
         let sanitized_value = StringSanitizer::sanitize(value);
-        
+
         sanitized_filters.insert(sanitized_key, sanitized_value);
     }
-    
+
     Ok(sanitized_filters)
 }
 
 /// Validates a store request checking key, value, and metadata
-pub fn validate_store_request(key: &str, value: &[u8], metadata: &HashMap<String, String>) -> ValidationResult<(String, Vec<u8>, HashMap<String, String>)> {
+pub fn validate_store_request(
+    key: &str,
+    value: &[u8],
+    metadata: &HashMap<String, String>,
+) -> ValidationResult<(String, Vec<u8>, HashMap<String, String>)> {
     let sanitized_key = validate_key(key)?;
     let sanitized_value = validate_value(value)?;
     let sanitized_metadata = validate_filters(metadata)?;
-    
+
     Ok((sanitized_key, sanitized_value, sanitized_metadata))
 }
 
 /// Validates a retrieve request (key and optional filters)
-pub fn validate_retrieve_request(key: &str, filters: &HashMap<String, String>) -> ValidationResult<(String, HashMap<String, String>)> {
+pub fn validate_retrieve_request(
+    key: &str,
+    filters: &HashMap<String, String>,
+) -> ValidationResult<(String, HashMap<String, String>)> {
     let sanitized_key = validate_key(key)?;
     let sanitized_filters = validate_filters(filters)?;
-    
+
     Ok((sanitized_key, sanitized_filters))
 }
 
@@ -161,7 +174,7 @@ pub fn validate_source_id(source_id: &str) -> ValidationResult<String> {
         SecurityValidation::no_path_traversal(),
         SecurityValidation::no_code_injection()
     )?;
-    
+
     Ok(StringSanitizer::sanitize_identifier(source_id))
 }
 
@@ -169,19 +182,24 @@ pub fn validate_source_id(source_id: &str) -> ValidationResult<String> {
 pub fn validate_sentiment(sentiment: i32) -> ValidationResult<i32> {
     // Check sentiment range (0 to 6 in the proto definition)
     if sentiment < 0 || sentiment > 6 {
-        return Err(format!("Invalid sentiment value: {}. Must be between 0 and 6", sentiment));
+        return Err(format!(
+            "Invalid sentiment value: {}. Must be between 0 and 6",
+            sentiment
+        ));
     }
-    
+
     Ok(sentiment)
 }
 
 /// Validates confidence score
 pub fn validate_confidence(confidence: f32) -> ValidationResult<f32> {
     if confidence < MIN_CONFIDENCE || confidence > MAX_CONFIDENCE {
-        return Err(format!("Invalid confidence score: {}. Must be between {} and {}", 
-            confidence, MIN_CONFIDENCE, MAX_CONFIDENCE));
+        return Err(format!(
+            "Invalid confidence score: {}. Must be between {} and {}",
+            confidence, MIN_CONFIDENCE, MAX_CONFIDENCE
+        ));
     }
-    
+
     Ok(confidence)
 }
 
@@ -194,7 +212,7 @@ pub fn validate_text(text: &str) -> ValidationResult<String> {
         SecurityValidation::no_command_injection(),
         SecurityValidation::no_script_tags()
     )?;
-    
+
     // Sanitize text input
     Ok(StringSanitizer::sanitize(text))
 }
@@ -203,20 +221,20 @@ pub fn validate_text(text: &str) -> ValidationResult<String> {
 pub fn validate_sentiment_fact(fact: &SentimentFact) -> ValidationResult<SentimentFact> {
     // Validate source ID
     let sanitized_source_id = validate_source_id(&fact.source_id)?;
-    
+
     // Validate sentiment
     let validated_sentiment = validate_sentiment(fact.sentiment)?;
-    
+
     // Validate confidence score
     let validated_confidence = validate_confidence(fact.confidence_score)?;
-    
+
     // Validate text if present and not empty
     let sanitized_text = if !fact.text.is_empty() {
         validate_text(&fact.text)?
     } else {
         fact.text.clone()
     };
-    
+
     // Create validated and sanitized fact
     let validated_fact = SentimentFact {
         source_id: sanitized_source_id,
@@ -225,6 +243,6 @@ pub fn validate_sentiment_fact(fact: &SentimentFact) -> ValidationResult<Sentime
         text: sanitized_text,
         timestamp: fact.timestamp, // Timestamp is just a number, no validation needed
     };
-    
+
     Ok(validated_fact)
 }

@@ -2,12 +2,12 @@
 // Main Entry Point for logging-service-rs
 // Implements the LoggingService gRPC server
 
-use tonic::{transport::Server, Request, Response, Status};
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::net::SocketAddr;
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use tonic::{Request, Response, Status, transport::Server};
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -16,14 +16,9 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    logging_service_server::{LoggingService, LoggingServiceServer},
+    HealthRequest, HealthResponse, LogEntry, LogResponse, MetricsRequest, MetricsResponse,
     health_service_server::{HealthService, HealthServiceServer},
-    LogEntry,
-    LogResponse,
-    MetricsRequest,
-    MetricsResponse,
-    HealthRequest,
-    HealthResponse,
+    logging_service_server::{LoggingService, LoggingServiceServer},
 };
 
 // Define the Logging Server Structure
@@ -33,15 +28,12 @@ pub struct LoggingServer;
 // Implement the LoggingService Trait
 #[tonic::async_trait]
 impl LoggingService for LoggingServer {
-    async fn log(
-        &self,
-        request: Request<LogEntry>,
-    ) -> Result<Response<LogResponse>, Status> {
+    async fn log(&self, request: Request<LogEntry>) -> Result<Response<LogResponse>, Status> {
         let log_entry = request.into_inner();
-        
+
         log::info!(
-            "Received log entry: level={}, service={}, message={}", 
-            log_entry.level, 
+            "Received log entry: level={}, service={}, message={}",
+            log_entry.level,
             log_entry.service,
             log_entry.message
         );
@@ -54,10 +46,10 @@ impl LoggingService for LoggingServer {
         // 4. Indexing for searchability
         // 5. Alerting on critical errors
         // For now, we return a stub response
-        
+
         // Generate a unique log ID for tracking
         let log_id = format!("log-{}", log_entry.timestamp);
-        
+
         // In a real implementation, this would write to persistent storage
         println!(
             "[{}] {} | {} | {} | Metadata: {:?}",
@@ -83,9 +75,9 @@ impl LoggingService for LoggingServer {
         request: Request<MetricsRequest>,
     ) -> Result<Response<MetricsResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
-            "Received GetMetrics request: service={}, metric_name={}, start={}, end={}", 
+            "Received GetMetrics request: service={}, metric_name={}, start={}, end={}",
             req_data.service,
             req_data.metric_name,
             req_data.start_time,
@@ -100,9 +92,9 @@ impl LoggingService for LoggingServer {
         // 4. Filtering by service and metric name
         // 5. Returning formatted metric data
         // For now, we return stub metrics
-        
+
         let mut metrics = HashMap::new();
-        
+
         // Generate stub metrics based on request
         if req_data.service.is_empty() || req_data.service == "all" {
             // Return aggregate metrics for all services
@@ -117,7 +109,7 @@ impl LoggingService for LoggingServer {
             metrics.insert(format!("{}_errors", req_data.service), 3.0);
             metrics.insert(format!("{}_avg_latency_ms", req_data.service), 38.2);
         }
-        
+
         // Add metric-specific data if requested
         if !req_data.metric_name.is_empty() {
             metrics.insert(req_data.metric_name.clone(), 123.45);
@@ -127,9 +119,14 @@ impl LoggingService for LoggingServer {
             metrics: metrics.clone(),
         };
 
-        log::info!("Returning {} metric(s) for service: {}", 
-            metrics.len(), 
-            if req_data.service.is_empty() { "all" } else { &req_data.service }
+        log::info!(
+            "Returning {} metric(s) for service: {}",
+            metrics.len(),
+            if req_data.service.is_empty() {
+                "all"
+            } else {
+                &req_data.service
+            }
         );
 
         Ok(Response::new(reply))
@@ -143,19 +140,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Load centralized configuration
-    let config = shared_types_rs::PhoenixConfig::load()
-        .map_err(|e| {
-            log::error!("Failed to load configuration: {}", e);
-            e
-        })?;
-    
+    let config = shared_types_rs::PhoenixConfig::load().map_err(|e| {
+        log::error!("Failed to load configuration: {}", e);
+        e
+    })?;
+
     // Get bind address from centralized config
     let addr_str = config.get_bind_address("logging");
     let addr: SocketAddr = addr_str.parse()?;
 
     let logging_server = LoggingServer::default();
 
-    log::info!("LoggingService starting on {} (environment: {})", addr, config.system.environment);
+    log::info!(
+        "LoggingService starting on {} (environment: {})",
+        addr,
+        config.system.environment
+    );
     println!("LoggingService listening on {}", addr);
 
     let _ = *START_TIME;
@@ -173,7 +173,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tonic::async_trait]
 impl HealthService for LoggingServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut dependencies = HashMap::new();
         dependencies.insert("log_storage".to_string(), "ACTIVE".to_string());

@@ -1,10 +1,11 @@
-use std::sync::Arc;
+use anyhow::Result;
+use chrono::Utc;
+use once_cell::sync::Lazy;
+use prost::Message;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
-use once_cell::sync::Lazy;
-use chrono::Utc;
-use anyhow::Result;
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -15,16 +16,9 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    data_router_service_client::DataRouterServiceClient,
+    AgiState, ContextEntry, ContextSummarySchema, GetStateRequest, GetUserRequest, RawContextData,
+    Request as ProtoRequest, UserIdentity, data_router_service_client::DataRouterServiceClient,
     llm_service_client::LLMServiceClient,
-    ContextEntry,
-    ContextSummarySchema,
-    RawContextData,
-    AgiState,
-    UserIdentity,
-    GetStateRequest,
-    GetUserRequest,
-    Request as ProtoRequest,
 };
 
 /// Core Context Manager implementation
@@ -63,7 +57,7 @@ impl ContextManager {
             schema_description: "Structured context summary for AGI system prompt".to_string(),
         };
 
-        let mut guard = self.context_schema.write().unwrap();
+        let mut guard = self.context_schema.write().await;
         *guard = Some(schema);
         tracing::info!("Initialized default context summary schema");
     }
@@ -94,17 +88,21 @@ impl ContextManager {
     }
 
     // Helper to get Data Router client
-    async fn get_data_router_client(&self) -> Option<DataRouterServiceClient<tonic::transport::Channel>> {
+    async fn get_data_router_client(
+        &self,
+    ) -> Option<DataRouterServiceClient<tonic::transport::Channel>> {
         self.data_router_client.read().await.clone()
     }
 
     /// Get user sentiment from Heart-KB
     pub async fn get_user_sentiment(&self, user_id: &str) -> Option<AgiState> {
         let mut client = self.get_data_router_client().await?;
-        
-        let req = GetStateRequest { source_id: user_id.to_string() };
+
+        let req = GetStateRequest {
+            source_id: user_id.to_string(),
+        };
         let payload = prost::Message::encode_to_vec(&req);
-        
+
         let route_req = agi_core::RouteRequest {
             target_service: "heart-kb".to_string(),
             request: Some(ProtoRequest {
@@ -120,9 +118,9 @@ impl ContextManager {
             Ok(resp) => {
                 let inner = resp.into_inner();
                 if let Some(response) = inner.response {
-                     if response.status_code == 200 {
-                         return AgiState::decode(response.payload.as_slice()).ok();
-                     }
+                    if response.status_code == 200 {
+                        return prost::Message::decode(response.payload.as_slice()).ok();
+                    }
                 }
                 None
             }
@@ -136,10 +134,12 @@ impl ContextManager {
     /// Get user identity from Social-KB
     pub async fn get_user_identity(&self, user_id: &str) -> Option<UserIdentity> {
         let mut client = self.get_data_router_client().await?;
-        
-        let req = GetUserRequest { user_id: user_id.to_string() };
+
+        let req = GetUserRequest {
+            user_id: user_id.to_string(),
+        };
         let payload = prost::Message::encode_to_vec(&req);
-        
+
         let route_req = agi_core::RouteRequest {
             target_service: "social-kb".to_string(),
             request: Some(ProtoRequest {
@@ -155,11 +155,13 @@ impl ContextManager {
             Ok(resp) => {
                 let inner = resp.into_inner();
                 if let Some(response) = inner.response {
-                     if response.status_code == 200 {
-                         if let Ok(user_resp) = agi_core::GetUserResponse::decode(response.payload.as_slice()) {
-                             return user_resp.identity;
-                         }
-                     }
+                    if response.status_code == 200 {
+                        if let Ok(user_resp) =
+                            prost::Message::decode(response.payload.as_slice())
+                        {
+                            return user_resp.identity;
+                        }
+                    }
                 }
                 None
             }
@@ -196,7 +198,7 @@ impl ContextManager {
         agent_type: &str,
         compiled_context_json: &str,
         sentiment_info: &str,
-        identity_info: &str
+        identity_info: &str,
     ) -> String {
         // Get the base prompt based on agent type
         let base_prompt = match agent_type {
@@ -218,7 +220,7 @@ impl ContextManager {
         };
 
         let mut prompt = format!("{}\n\n", base_prompt);
-        
+
         // Add Identity & Sentiment Context if available
         if !identity_info.is_empty() || !sentiment_info.is_empty() {
             prompt.push_str("## User Context\n");
@@ -255,7 +257,7 @@ impl ContextManager {
             }
         };
 
-        let schema = match self.context_schema.read().unwrap().clone() {
+        let schema = match self.context_schema.read().await.clone() {
             Some(schema) => schema,
             None => {
                 tracing::warn!("Context schema not initialized");
@@ -277,10 +279,16 @@ impl ContextManager {
             max_output_tokens: 1000,
         };
 
-        match llm_client.compile_context(tonic::Request::new(compile_request)).await {
+        match llm_client
+            .compile_context(tonic::Request::new(compile_request))
+            .await
+        {
             Ok(response) => {
                 let inner = response.into_inner();
-                tracing::info!("Context compilation successful: {} tokens used", inner.tokens_used);
+                tracing::info!(
+                    "Context compilation successful: {} tokens used",
+                    inner.tokens_used
+                );
                 Ok(inner.compiled_json)
             }
             Err(e) => {
@@ -293,11 +301,10 @@ impl ContextManager {
     /// Get recent context entries
     pub async fn get_recent_context(&self, kb_sources: &[String], limit: i32) -> Vec<ContextEntry> {
         let cache = self.context_cache.read().await;
-        
-        cache.iter()
-            .filter(|e| {
-                kb_sources.is_empty() || kb_sources.contains(&e.source_kb)
-            })
+
+        cache
+            .iter()
+            .filter(|e| kb_sources.is_empty() || kb_sources.contains(&e.source_kb))
             .cloned()
             .take(limit as usize)
             .collect()
@@ -307,7 +314,7 @@ impl ContextManager {
     pub async fn add_to_cache(&self, entries: Vec<ContextEntry>) {
         let mut cache = self.context_cache.write().await;
         cache.extend(entries);
-        
+
         // Keep only last 100 entries
         let cache_len = cache.len();
         if cache_len > 100 {

@@ -2,24 +2,19 @@
 // Main Entry Point for social-kb-rs
 // Implements the SocialKBService gRPC server
 
-use tonic::{transport::Server, Request, Response, Status};
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use tonic::{Request, Response, Status, transport::Server};
 
 // Import validation module
 mod validation;
 use validation::{
-    validate_query,
-    validate_store_request,
-    validate_retrieve_request,
-    validate_user_identity,
-    validate_register_user_request,
-    validate_user_id,
-    validate_role_filter
+    validate_query, validate_register_user_request, validate_retrieve_request,
+    validate_role_filter, validate_store_request, validate_user_id, validate_user_identity,
 };
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -29,24 +24,24 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    social_kb_service_server::{SocialKbService, SocialKbServiceServer},
-    health_service_server::{HealthService, HealthServiceServer},
-    QueryRequest,
-    QueryResponse,
-    StoreRequest,
-    StoreResponse,
-    RetrieveRequest,
-    RetrieveResponse,
+    GetUserRequest,
+    GetUserResponse,
     HealthRequest,
     HealthResponse,
+    ListUsersRequest,
+    ListUsersResponse,
+    QueryRequest,
+    QueryResponse,
     // User identity types
     RegisterUserRequest,
     RegisterUserResponse,
-    GetUserRequest,
-    GetUserResponse,
-    ListUsersRequest,
-    ListUsersResponse,
+    RetrieveRequest,
+    RetrieveResponse,
+    StoreRequest,
+    StoreResponse,
     UserIdentity,
+    health_service_server::{HealthService, HealthServiceServer},
+    social_kb_service_server::{SocialKbService, SocialKbServiceServer},
 };
 
 // Define the Social KB Server Structure
@@ -62,7 +57,7 @@ impl SocialKbService for SocialKBServer {
         request: Request<QueryRequest>,
     ) -> Result<Response<QueryResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Social-KB received QueryKB request: query={}, limit={}",
             req_data.query,
@@ -72,7 +67,10 @@ impl SocialKbService for SocialKBServer {
         // Validate query and limit
         if let Err(err) = validate_query(&req_data.query, req_data.limit) {
             log::warn!("Query validation failed: {}", err);
-            return Err(Status::invalid_argument(format!("Invalid query parameters: {}", err)));
+            return Err(Status::invalid_argument(format!(
+                "Invalid query parameters: {}",
+                err
+            )));
         }
 
         // --- QUERY STUB (Social Context) ---
@@ -82,7 +80,7 @@ impl SocialKbService for SocialKBServer {
         // 3. Getting social protocols and behavioral norms
         // 4. Returning social context for appropriate behavior
         // Retrieves relationship status, trust scores, and social history for a user/agent
-        
+
         // Stub: return mock social data
         let results = vec![
             format!("Social-KB stub relationship status for query: '{}' - Trust: 0.9, Role: Colleague, Interaction Count: 42", req_data.query).into_bytes(),
@@ -101,7 +99,10 @@ impl SocialKbService for SocialKBServer {
             },
         };
 
-        log::info!("Social-KB query returned {} social result(s)", results.len());
+        log::info!(
+            "Social-KB query returned {} social result(s)",
+            results.len()
+        );
 
         Ok(Response::new(reply))
     }
@@ -111,7 +112,7 @@ impl SocialKbService for SocialKBServer {
         request: Request<StoreRequest>,
     ) -> Result<Response<StoreResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Social-KB received StoreFact request: key={}, value_size={} bytes",
             req_data.key,
@@ -122,14 +123,20 @@ impl SocialKbService for SocialKBServer {
         match validate_store_request(&req_data.key, &req_data.value, &req_data.metadata) {
             Ok((sanitized_key, sanitized_value, sanitized_metadata)) => {
                 // Use sanitized values in real implementation
-                log::info!("Validated store request: key={}, value_size={} bytes",
-                    sanitized_key, sanitized_value.len());
-                
+                log::info!(
+                    "Validated store request: key={}, value_size={} bytes",
+                    sanitized_key,
+                    sanitized_value.len()
+                );
+
                 // For now we just log the sanitized data since this is a stub implementation
-            },
+            }
             Err(err) => {
                 log::warn!("Store request validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid store request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid store request: {}",
+                    err
+                )));
             }
         }
 
@@ -140,7 +147,7 @@ impl SocialKbService for SocialKBServer {
         // 3. Storing social interaction history
         // 4. Applying social protocol updates
         // Stores new social interaction data, updating relationship scores and history
-        
+
         // Generate a stored ID
         let stored_id = format!("social-{}", req_data.key);
 
@@ -167,7 +174,7 @@ impl SocialKbService for SocialKBServer {
         request: Request<RetrieveRequest>,
     ) -> Result<Response<RetrieveResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Social-KB received Retrieve request: key={}, filters={:?}",
             req_data.key,
@@ -178,14 +185,20 @@ impl SocialKbService for SocialKBServer {
         match validate_retrieve_request(&req_data.key, &req_data.filters) {
             Ok((sanitized_key, sanitized_filters)) => {
                 // Use sanitized values in real implementation
-                log::info!("Validated retrieve request: key={}, filters={:?}",
-                    sanitized_key, sanitized_filters);
-                
+                log::info!(
+                    "Validated retrieve request: key={}, filters={:?}",
+                    sanitized_key,
+                    sanitized_filters
+                );
+
                 // For now we just log the sanitized data since this is a stub implementation
-            },
+            }
             Err(err) => {
                 log::warn!("Retrieve request validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid retrieve request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid retrieve request: {}",
+                    err
+                )));
             }
         }
 
@@ -196,7 +209,7 @@ impl SocialKbService for SocialKBServer {
         // 3. Retrieving relationship history or social protocols
         // 4. Returning the stored social value
         // For now, we return a stub response
-        
+
         // Stub: return mock social data
         let value = format!("Social-KB retrieved relationship for key: '{}' - Trust: 0.9, Role: Colleague, Last Interaction: recent", req_data.key).into_bytes();
 
@@ -205,7 +218,14 @@ impl SocialKbService for SocialKBServer {
             metadata: {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("kb_type".to_string(), "social".to_string());
-                meta.insert("retrieved_at".to_string(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_string());
+                meta.insert(
+                    "retrieved_at".to_string(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        .to_string(),
+                );
                 meta.insert("state_type".to_string(), "relationship".to_string());
                 meta
             },
@@ -232,19 +252,26 @@ impl SocialKbService for SocialKBServer {
         request: Request<RegisterUserRequest>,
     ) -> Result<Response<RegisterUserResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate registration request
         let validated_req = match validate_register_user_request(&req) {
             Ok(validated) => validated,
             Err(err) => {
                 log::warn!("User registration validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid user registration: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid user registration: {}",
+                    err
+                )));
             }
         };
-        
+
         let identity = validated_req.identity.unwrap_or_default();
-        log::info!("Social-KB RegisterUser: name={}, role={}", identity.name, identity.role);
-        
+        log::info!(
+            "Social-KB RegisterUser: name={}, role={}",
+            identity.name,
+            identity.role
+        );
+
         Ok(Response::new(RegisterUserResponse {
             success: true,
             user_id: if identity.user_id.is_empty() {
@@ -260,18 +287,21 @@ impl SocialKbService for SocialKBServer {
         request: Request<GetUserRequest>,
     ) -> Result<Response<GetUserResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate user ID
         let sanitized_user_id = match validate_user_id(&req.user_id) {
             Ok(id) => id,
             Err(err) => {
                 log::warn!("User ID validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid user ID: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid user ID: {}",
+                    err
+                )));
             }
         };
-        
+
         log::info!("Social-KB GetUser: user_id={}", sanitized_user_id);
-        
+
         // Create identity (would be from database in real implementation)
         let user_identity = UserIdentity {
             user_id: sanitized_user_id.clone(),
@@ -285,7 +315,7 @@ impl SocialKbService for SocialKBServer {
                 .as_secs() as i64,
             attributes: HashMap::new(),
         };
-        
+
         // Validate the generated identity (defense in depth)
         let validated_identity = match validate_user_identity(&user_identity) {
             Ok(validated) => validated,
@@ -294,7 +324,7 @@ impl SocialKbService for SocialKBServer {
                 return Err(Status::internal(format!("Error in user identity: {}", err)));
             }
         };
-        
+
         Ok(Response::new(GetUserResponse {
             found: true,
             identity: Some(validated_identity),
@@ -307,18 +337,21 @@ impl SocialKbService for SocialKBServer {
         request: Request<ListUsersRequest>,
     ) -> Result<Response<ListUsersResponse>, Status> {
         let req = request.into_inner();
-        
+
         // Validate role filter
         let validated_role_filter = match validate_role_filter(req.role_filter) {
             Ok(role) => role,
             Err(err) => {
                 log::warn!("Role filter validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid role filter: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid role filter: {}",
+                    err
+                )));
             }
         };
-        
+
         log::info!("Social-KB ListUsers: role_filter={}", validated_role_filter);
-        
+
         Ok(Response::new(ListUsersResponse {
             users: vec![],
             total_count: 0,
@@ -333,9 +366,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Read address from environment variable or use the default port 50060
-    let addr_str = env::var("SOCIAL_KB_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:50060".to_string());
-    
+    let addr_str = env::var("SOCIAL_KB_ADDR").unwrap_or_else(|_| "0.0.0.0:50060".to_string());
+
     // Parse the address, handling both "0.0.0.0:50060" and "http://127.0.0.1:50060" formats
     let addr: SocketAddr = if addr_str.starts_with("http://") {
         addr_str
@@ -366,7 +398,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 #[tonic::async_trait]
 impl HealthService for SocialKBServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut dependencies = HashMap::new();
         dependencies.insert("kb_storage".to_string(), "ACTIVE".to_string());

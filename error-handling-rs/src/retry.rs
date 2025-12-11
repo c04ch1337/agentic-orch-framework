@@ -335,18 +335,22 @@ impl RetryPolicy {
         }
     }
     
-    /// Checks if an error is retryable according to this policy
-    pub fn is_retryable<E: RetryableError>(&self, error: &E, attempt: usize) -> bool {
+    /// Checks if an error is retryable according to this policy.
+    ///
+    /// This policy is defined in terms of the framework's own [`Error`](crate::types::Error)
+    /// type to reliably inspect the structured error kind. We avoid generic downcasting
+    /// since it's not available on arbitrary error types.
+    pub fn is_retryable(&self, error: &Error, attempt: usize) -> bool {
         // Check maximum retries
         if attempt >= self.config.max_retries {
             return false;
         }
-        
+
         // Check if we only retry transient errors
         if self.config.retry_only_transient && !error.is_transient() {
             return false;
         }
-        
+
         // Check backpressure limit if configured
         if let Some(limit) = self.config.backpressure_limit {
             let current = self.concurrent_retries.load(Ordering::Relaxed);
@@ -360,27 +364,24 @@ impl RetryPolicy {
                 return false;
             }
         }
-        
-        // If we have a specific error implementation, use it for additional checks
-        if let Some(err) = error.downcast_ref::<Error>() {
-            // Check if this error kind is in the non-retryable list
-            if let Some(non_retryable) = &self.config.non_retryable_errors {
-                if non_retryable.contains(&err.kind) {
-                    return false;
-                }
-            }
-            
-            // Check if we have a whitelist of retryable errors
-            if let Some(retryable) = &self.config.retryable_errors {
-                return retryable.contains(&err.kind);
+
+        // Check if this error kind is in the non-retryable list
+        if let Some(non_retryable) = &self.config.non_retryable_errors {
+            if non_retryable.contains(&error.kind) {
+                return false;
             }
         }
-        
+
+        // Check if we have a whitelist of retryable errors
+        if let Some(retryable) = &self.config.retryable_errors {
+            return retryable.contains(&error.kind);
+        }
+
         true
     }
     
     /// Calculates the backoff duration for a retry
-    pub fn calculate_backoff<E: RetryableError>(&self, error: &E, attempt: usize) -> Duration {
+    pub fn calculate_backoff(&self, error: &Error, attempt: usize) -> Duration {
         // Check for suggested delay from the error
         if let Some(delay) = error.suggested_delay() {
             return delay;
@@ -422,22 +423,22 @@ impl RetryPolicy {
         if !self.config.record_metrics {
             return;
         }
-        
+
         let metric_prefix = format!("retry.{}", self.name);
-        
+
         // Record attempt count
-        counter!(&format!("{}.attempts", metric_prefix), 1);
-        
+        counter!(format!("{}.attempts", metric_prefix), 1);
+
         // Record success/failure
         if success {
-            counter!(&format!("{}.success", metric_prefix), 1);
+            counter!(format!("{}.success", metric_prefix), 1);
         } else {
-            counter!(&format!("{}.failure", metric_prefix), 1);
+            counter!(format!("{}.failure", metric_prefix), 1);
         }
-        
+
         // Record final attempt number
-        counter!(&format!("{}.attempt.{}", metric_prefix, attempt), 1);
-        
+        counter!(format!("{}.attempt.{}", metric_prefix, attempt), 1);
+
         // Error category metrics if available
         if let Some(category) = error_category {
             let category_name = match category {
@@ -450,15 +451,15 @@ impl RetryPolicy {
                 RetryCategory::Client => "client",
                 RetryCategory::Unavailable => "unavailable",
             };
-            
-            counter!(&format!("{}.error.{}", metric_prefix, category_name), 1);
+
+            counter!(format!("{}.error.{}", metric_prefix, category_name), 1);
         }
-        
+
         // Record backoff duration
-        histogram!(&format!("{}.duration_ms", metric_prefix), duration.as_millis() as f64);
-        
+        histogram!(format!("{}.duration_ms", metric_prefix), duration.as_millis() as f64);
+
         // Record concurrent retries
-        gauge!(&format!("{}.concurrent", metric_prefix), self.concurrent_retries.load(Ordering::Relaxed) as f64);
+        gauge!(format!("{}.concurrent", metric_prefix), self.concurrent_retries.load(Ordering::Relaxed) as f64);
     }
     
     /// Executes a function with retry behavior

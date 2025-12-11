@@ -5,14 +5,14 @@ use tonic::{Request, Response};
 // Mock for the AgentRegistryClient
 mock! {
     pub AgentRegistryClient {}
-    
+
     #[async_trait]
     impl AgentRegistryServiceClient<tonic::transport::Channel> for AgentRegistryClient {
         async fn get_agent(
-            &mut self, 
+            &mut self,
             request: Request<GetAgentRequest>
         ) -> Result<Response<GetAgentResponse>, Status>;
-        
+
         // Add other methods from AgentRegistryServiceClient as needed
     }
 }
@@ -21,15 +21,16 @@ mock! {
 async fn test_find_agent_by_capability_success() {
     // Set up a mock Agent Registry client
     let mut mock_registry = MockAgentRegistryClient::new();
-    
+
     // Define the expected request and response
-    mock_registry.expect_get_agent()
+    mock_registry
+        .expect_get_agent()
         .with(predicate::always())
         .times(1)
         .returning(|request| {
             let req = request.into_inner();
             assert_eq!(req.capability, "test_capability");
-            
+
             let agent_info = AgentInfo {
                 agent_id: "test-id".to_string(),
                 name: "test-agent".to_string(),
@@ -39,25 +40,28 @@ async fn test_find_agent_by_capability_success() {
                 status: "ONLINE".to_string(),
                 metadata: std::collections::HashMap::new(),
             };
-            
+
             Ok(Response::new(GetAgentResponse {
                 found: true,
                 agent: Some(agent_info),
             }))
         });
-    
+
     // Create an OrchestratorServer with our mock registry
     let server = OrchestratorServer::new();
-    
+
     // Insert the mock registry
     {
         let mut registry_client = server.agent_registry_client.lock().await;
         *registry_client = Some(mock_registry);
     }
-    
+
     // Call the method we're testing
-    let result = server.find_agent_by_capability("test_capability").await.unwrap();
-    
+    let result = server
+        .find_agent_by_capability("test_capability")
+        .await
+        .unwrap();
+
     // Verify the result
     assert!(result.is_some());
     let agent = result.unwrap();
@@ -69,9 +73,10 @@ async fn test_find_agent_by_capability_success() {
 async fn test_find_agent_by_capability_not_found() {
     // Set up a mock Agent Registry client
     let mut mock_registry = MockAgentRegistryClient::new();
-    
+
     // Define the expected request and response for agent not found
-    mock_registry.expect_get_agent()
+    mock_registry
+        .expect_get_agent()
         .with(predicate::always())
         .times(1)
         .returning(|_| {
@@ -80,19 +85,22 @@ async fn test_find_agent_by_capability_not_found() {
                 agent: None,
             }))
         });
-    
+
     // Create an OrchestratorServer with our mock registry
     let server = OrchestratorServer::new();
-    
+
     // Insert the mock registry
     {
         let mut registry_client = server.agent_registry_client.lock().await;
         *registry_client = Some(mock_registry);
     }
-    
+
     // Call the method we're testing
-    let result = server.find_agent_by_capability("nonexistent_capability").await.unwrap();
-    
+    let result = server
+        .find_agent_by_capability("nonexistent_capability")
+        .await
+        .unwrap();
+
     // Verify the result is None
     assert!(result.is_none());
 }
@@ -101,27 +109,26 @@ async fn test_find_agent_by_capability_not_found() {
 async fn test_find_agent_by_capability_registry_error() {
     // Set up a mock Agent Registry client
     let mut mock_registry = MockAgentRegistryClient::new();
-    
+
     // Define the expected request and response for registry error
-    mock_registry.expect_get_agent()
+    mock_registry
+        .expect_get_agent()
         .with(predicate::always())
         .times(1)
-        .returning(|_| {
-            Err(Status::unavailable("Agent Registry service unavailable"))
-        });
-    
+        .returning(|_| Err(Status::unavailable("Agent Registry service unavailable")));
+
     // Create an OrchestratorServer with our mock registry
     let server = OrchestratorServer::new();
-    
+
     // Insert the mock registry
     {
         let mut registry_client = server.agent_registry_client.lock().await;
         *registry_client = Some(mock_registry);
     }
-    
+
     // Call the method we're testing
     let result = server.find_agent_by_capability("test_capability").await;
-    
+
     // Verify we get an error with unavailable status
     assert!(result.is_err());
     let err = result.err().unwrap();
@@ -132,9 +139,10 @@ async fn test_find_agent_by_capability_registry_error() {
 async fn test_route_with_capability() {
     // Set up a mock Agent Registry client
     let mut mock_registry = MockAgentRegistryClient::new();
-    
+
     // Define the expected request and response
-    mock_registry.expect_get_agent()
+    mock_registry
+        .expect_get_agent()
         .with(predicate::always())
         .times(1)
         .returning(|_| {
@@ -147,22 +155,22 @@ async fn test_route_with_capability() {
                 status: "ONLINE".to_string(),
                 metadata: std::collections::HashMap::new(),
             };
-            
+
             Ok(Response::new(GetAgentResponse {
                 found: true,
                 agent: Some(agent_info),
             }))
         });
-    
+
     // Create an OrchestratorServer with our mock registry
     let server = OrchestratorServer::new();
-    
+
     // Insert the mock registry
     {
         let mut registry_client = server.agent_registry_client.lock().await;
         *registry_client = Some(mock_registry);
     }
-    
+
     // Create a route request with a capability
     let request = Request::new(RouteRequest {
         target_service: "capability:test_capability".to_string(),
@@ -174,10 +182,10 @@ async fn test_route_with_capability() {
             metadata: std::collections::HashMap::new(),
         }),
     });
-    
+
     // Call the route method
     let result = server.route(request).await;
-    
+
     // Verify the result
     assert!(result.is_ok());
     let response = result.unwrap().into_inner();

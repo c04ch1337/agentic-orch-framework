@@ -1,10 +1,7 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use tonic::{
-    transport::Channel,
-    Code,
-};
+use tonic::{Code, transport::Channel};
 
 /// gRPC E2E tests for OrchestratorService::PlanAndExecute.
 ///
@@ -28,10 +25,7 @@ pub mod agi_core {
     tonic::include_proto!("agi_core");
 }
 
-use agi_core::{
-    orchestrator_service_client::OrchestratorServiceClient,
-    Request as ProtoRequest,
-};
+use agi_core::{Request as ProtoRequest, orchestrator_service_client::OrchestratorServiceClient};
 
 /// Create a gRPC client to the running orchestrator-service instance.
 ///
@@ -41,8 +35,8 @@ use agi_core::{
 /// The target can be overridden for tests by setting ORCHESTRATOR_E2E_ADDR,
 /// e.g.:
 ///   ORCHESTRATOR_E2E_ADDR=http://orchestrator:50051 cargo test -p orchestrator-service-rs --test plan_and_execute_e2e
-async fn create_orchestrator_client(
-) -> Result<OrchestratorServiceClient<Channel>, Box<dyn std::error::Error>> {
+async fn create_orchestrator_client()
+-> Result<OrchestratorServiceClient<Channel>, Box<dyn std::error::Error>> {
     let addr = std::env::var("ORCHESTRATOR_E2E_ADDR")
         .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
 
@@ -78,8 +72,14 @@ async fn plan_and_execute_e2e_success() -> Result<(), Box<dyn std::error::Error>
     let agi = response.into_inner();
 
     // Basic invariants
-    assert_eq!(agi.phoenix_session_id, "final-e2e-plan-001", "phoenix_session_id should echo the Request.id");
-    assert_eq!(agi.routed_service, "llm-service", "PlanAndExecute should ultimately route to llm-service for this query");
+    assert_eq!(
+        agi.phoenix_session_id, "final-e2e-plan-001",
+        "phoenix_session_id should echo the Request.id"
+    );
+    assert_eq!(
+        agi.routed_service, "llm-service",
+        "PlanAndExecute should ultimately route to llm-service for this query"
+    );
 
     // The final answer should be non-empty and plausibly answer both parts of the query.
     assert!(
@@ -120,8 +120,8 @@ async fn plan_and_execute_e2e_success() -> Result<(), Box<dyn std::error::Error>
 }
 
 #[tokio::test]
-async fn plan_and_execute_e2e_failure_returns_graceful_agi_response(
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn plan_and_execute_e2e_failure_returns_graceful_agi_response()
+-> Result<(), Box<dyn std::error::Error>> {
     // This negative test documents the updated failure behavior of PlanAndExecute.
     //
     // To truly exercise a downstream failure, you must intentionally

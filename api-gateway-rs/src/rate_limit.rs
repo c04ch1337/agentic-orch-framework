@@ -3,19 +3,19 @@
 // dependency-free approach while preserving the public API.
 
 use axum::{
+    body::Body,
     extract::Request,
-    http::{StatusCode, HeaderMap},
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
     Json,
-    body::Body,
 };
+use once_cell::sync::Lazy;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
-use once_cell::sync::Lazy;
 
 // Per-key rate limit tracking
 #[derive(Clone)]
@@ -51,10 +51,12 @@ async fn check_and_update_rate_limit(api_key: &str) -> Result<(), RateLimitError
     let now = Instant::now();
     let mut map = RATE_LIMITERS.write().await;
 
-    let entry = map.entry(api_key.to_string()).or_insert_with(|| RateLimitInfo {
-        count: 0,
-        window_start: now,
-    });
+    let entry = map
+        .entry(api_key.to_string())
+        .or_insert_with(|| RateLimitInfo {
+            count: 0,
+            window_start: now,
+        });
 
     // Reset window if expired
     if now.duration_since(entry.window_start).as_secs() >= WINDOW_DURATION_SECS {
@@ -94,10 +96,7 @@ pub async fn tower_governor_rate_limiter(
         .unwrap_or_else(|| "anonymous".to_string());
 
     if let Err(err) = check_and_update_rate_limit(&api_key).await {
-        return Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            Json(err),
-        ));
+        return Err((StatusCode::TOO_MANY_REQUESTS, Json(err)));
     }
 
     Ok(next.run(req).await)

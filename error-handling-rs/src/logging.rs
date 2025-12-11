@@ -76,48 +76,30 @@ pub fn init_logging(config: Option<LoggingConfig>) -> Result<()> {
     // Create subscriber with multiple layers
     let subscriber = Registry::default().with(filter);
     
-    // Create formatting layer
-    let formatting_layer = if config.json_format {
+    // Attach an appropriate formatting layer based on configuration. We build
+    // distinct layers for JSON vs text output rather than trying to store them
+    // behind a single concrete type.
+    let subscriber = if config.json_format {
         let json_layer = fmt::layer()
             .json()
             .flatten_event(true)
             .with_current_span(true)
-            .with_target(true);
-        
-        // Add custom fields if present
-        if !config.custom_fields.is_empty() {
-            json_layer
-                .with_span_list(true)
-                .with_context(move |ctx| {
-                    let mut fields = HashMap::new();
-                    fields.insert("service".to_string(), 
-                                  serde_json::Value::String(config.service_name.clone()));
-                    
-                    // Add correlation ID if present
-                    if let Some(correlation_id) = current_correlation_id() {
-                        fields.insert("correlation_id".to_string(), 
-                                     serde_json::Value::String(correlation_id));
-                    }
-                    
-                    // Add all custom fields
-                    for (key, value) in &config.custom_fields {
-                        fields.insert(key.clone(), value.clone());
-                    }
-                    
-                    fields
-                })
-        } else {
-            json_layer
-        }
+            .with_target(true)
+            .with_span_list(true);
+    
+        // Note: additional structured fields such as service name and correlation
+        // ID are attached at call sites (e.g. in `log_structured_error`) rather
+        // than via a custom `with_context` hook on the subscriber layer, which
+        // is not supported by `tracing-subscriber`'s `fmt::Layer`.
+        subscriber.with(json_layer)
     } else {
-        fmt::layer()
+        let text_layer = fmt::layer()
             .with_target(true)
             .with_thread_ids(true)
-            .with_thread_names(true)
-    };
+            .with_thread_names(true);
     
-    // Configure subscriber with the formatting layer
-    let subscriber = subscriber.with(formatting_layer);
+        subscriber.with(text_layer)
+    };
     
     // Add file output if configured
     let subscriber = if config.file_output {
@@ -302,6 +284,43 @@ pub fn log_structured_error(error: &Error) {
                 "Info occurred"
             );
         },
+    }
+}
+impl TryFrom&lt;config::Config&gt; for LoggingConfig {
+    type Error = config::ConfigError;
+
+    fn try_from(cfg: config::Config) -&gt; std::result::Result&lt;Self, Self::Error&gt; {
+        // Start from defaults and selectively override from the provided config.
+        let mut base = LoggingConfig::default();
+
+        if let Ok(level) = cfg.get::&lt;String&gt;("logging.level") {
+            base.level = level;
+        }
+        if let Ok(service_name) = cfg.get::&lt;String&gt;("logging.service_name") {
+            base.service_name = service_name;
+        }
+        if let Ok(file_output) = cfg.get::&lt;bool&gt;("logging.file_output") {
+            base.file_output = file_output;
+        }
+        if let Ok(log_dir) = cfg.get::&lt;String&gt;("logging.log_dir") {
+            base.log_dir = Some(log_dir);
+        }
+        if let Ok(json_format) = cfg.get::&lt;bool&gt;("logging.json_format") {
+            base.json_format = json_format;
+        }
+        if let Ok(include_source_code) = cfg.get::&lt;bool&gt;("logging.include_source_code") {
+            base.include_source_code = include_source_code;
+        }
+        if let Ok(enable_tracing) = cfg.get::&lt;bool&gt;("logging.enable_tracing") {
+            base.enable_tracing = enable_tracing;
+        }
+        if let Ok(custom) = cfg.get::&lt;serde_json::Value&gt;("logging.custom_fields") {
+            if let serde_json::Value::Object(map) = custom {
+                base.custom_fields = map;
+            }
+        }
+
+        Ok(base)
     }
 }
 

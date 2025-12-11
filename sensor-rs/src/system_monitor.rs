@@ -38,9 +38,9 @@ impl SystemMonitor {
     pub fn new() -> Self {
         let mut system = System::new_all();
         system.refresh_all();
-        
+
         let networks = Networks::new_with_refreshed_list();
-        
+
         Self { system, networks }
     }
 
@@ -139,7 +139,7 @@ mod tests {
     fn test_poll_state() {
         let mut monitor = SystemMonitor::new();
         let state = monitor.poll_state();
-        
+
         // Basic sanity checks
         assert!(state.timestamp > 0);
         assert!(state.cpu_usage_percent >= 0.0 && state.cpu_usage_percent <= 100.0);

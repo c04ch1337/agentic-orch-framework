@@ -220,10 +220,10 @@ message User {
 }
 
 enum UserStatus {
-  ACTIVE = 0;
-  INACTIVE = 1;
-  LOCKED = 2;
-  PENDING = 3;
+  USER_STATUS_ACTIVE = 0;
+  USER_STATUS_INACTIVE = 1;
+  USER_STATUS_LOCKED = 2;
+  USER_STATUS_PENDING = 3;
 }
 
 message CreateUserRequest {
@@ -280,10 +280,10 @@ message Service {
 }
 
 enum ServiceStatus {
-  ACTIVE = 0;
-  INACTIVE = 1;
-  MAINTENANCE = 2;
-  DEPRECATED = 3;
+  SERVICE_STATUS_ACTIVE = 0;
+  SERVICE_STATUS_INACTIVE = 1;
+  SERVICE_STATUS_MAINTENANCE = 2;
+  SERVICE_STATUS_DEPRECATED = 3;
 }
 
 message RegisterServiceRequest {
@@ -370,10 +370,10 @@ message CertStatusResponse {
 }
 
 enum CertStatus {
-  VALID = 0;
-  REVOKED = 1;
-  EXPIRED = 2;
-  PENDING = 3;
+  CERT_STATUS_VALID = 0;
+  CERT_STATUS_REVOKED = 1;
+  CERT_STATUS_EXPIRED = 2;
+  CERT_STATUS_PENDING = 3;
 }
 
 // Audit Logging

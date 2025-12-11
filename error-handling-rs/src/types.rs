@@ -111,7 +111,11 @@ impl fmt::Display for ErrorKind {
 }
 
 /// Core error type for the Phoenix ORCH AGI system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Note: `Clone` is implemented manually so that cloned errors intentionally
+/// drop the underlying `cause` and `backtrace`. This keeps clones cheap and
+/// serialization-friendly while preserving all structured metadata.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Error {
     /// A unique identifier for this error instance
     pub id: Uuid,
@@ -146,6 +150,31 @@ pub struct Error {
     pub reported: bool,
     /// Flag indicating if this is a transient error that might succeed on retry
     pub transient: bool,
+}
+
+impl Clone for Error {
+    /// Cloning an `Error` preserves all structured metadata (kind, message,
+    /// codes, context, etc.) but intentionally drops the opaque `cause` and
+    /// `backtrace` fields, which are typically not serializable and are only
+    /// meaningful at the original creation site.
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            kind: self.kind.clone(),
+            message: self.message.clone(),
+            timestamp: self.timestamp.clone(),
+            severity: self.severity,
+            service: self.service.clone(),
+            correlation_id: self.correlation_id.clone(),
+            code: self.code.clone(),
+            user_message: self.user_message.clone(),
+            context: self.context.clone(),
+            cause: None,
+            backtrace: None,
+            reported: self.reported,
+            transient: self.transient,
+        }
+    }
 }
 
 impl Error {

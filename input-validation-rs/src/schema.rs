@@ -3,10 +3,10 @@
 //! This module provides utilities for schema-based validation of complex objects,
 //! inspired by JSON Schema but with additional safety features.
 
-use std::collections::{HashMap, HashSet};
-use serde_json::Value;
 use crate::errors::{ValidationError, ValidationResult};
 use crate::ValidationConfig;
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 /// Schema for validating JSON-like structures
 #[derive(Debug, Clone)]
@@ -113,7 +113,8 @@ impl Schema {
                 for (field_name, field_schema) in &self.fields {
                     if field_schema.required && !obj.contains_key(field_name) {
                         errors.push(ValidationError::MissingFields(format!(
-                            "Required field '{}' is missing", field_name
+                            "Required field '{}' is missing",
+                            field_name
                         )));
                     }
                 }
@@ -124,7 +125,8 @@ impl Schema {
                     for field_name in obj.keys() {
                         if !schema_fields.contains(field_name) {
                             errors.push(ValidationError::ExtraFields(format!(
-                                "Unknown field '{}' is not allowed", field_name
+                                "Unknown field '{}' is not allowed",
+                                field_name
                             )));
                         }
                     }
@@ -138,7 +140,9 @@ impl Schema {
                             None => field_name.clone(),
                         };
 
-                        if let Err(err) = field_schema.validate(field_value, Some(field_path.clone())) {
+                        if let Err(err) =
+                            field_schema.validate(field_value, Some(field_path.clone()))
+                        {
                             errors.push(err);
                         }
                     }
@@ -147,11 +151,15 @@ impl Schema {
                 if errors.is_empty() {
                     Ok(())
                 } else {
-                    Err(ValidationError::composite_at(errors, path.unwrap_or_default()))
+                    Err(ValidationError::composite_at(
+                        errors,
+                        path.unwrap_or_default(),
+                    ))
                 }
             }
             _ => Err(ValidationError::InvalidType(format!(
-                "Expected object, got {:?}", value
+                "Expected object, got {:?}",
+                value
             ))),
         }
     }
@@ -212,7 +220,9 @@ impl FieldSchema {
                 if let Some(min_len) = self.min_length {
                     if s.len() < min_len {
                         return Err(ValidationError::TooShort(format!(
-                            "String length {} is less than minimum {}", s.len(), min_len
+                            "String length {} is less than minimum {}",
+                            s.len(),
+                            min_len
                         )));
                     }
                 }
@@ -220,7 +230,9 @@ impl FieldSchema {
                 if let Some(max_len) = self.max_length {
                     if s.len() > max_len {
                         return Err(ValidationError::TooLong(format!(
-                            "String length {} exceeds maximum {}", s.len(), max_len
+                            "String length {} exceeds maximum {}",
+                            s.len(),
+                            max_len
                         )));
                     }
                 }
@@ -230,13 +242,15 @@ impl FieldSchema {
                         Ok(re) => {
                             if !re.is_match(s) {
                                 return Err(ValidationError::PatternMismatch(format!(
-                                    "String does not match pattern '{}'", pattern
+                                    "String does not match pattern '{}'",
+                                    pattern
                                 )));
                             }
                         }
                         Err(e) => {
                             return Err(ValidationError::Generic(format!(
-                                "Invalid regex pattern '{}': {}", pattern, e
+                                "Invalid regex pattern '{}': {}",
+                                pattern, e
                             )));
                         }
                     }
@@ -254,7 +268,8 @@ impl FieldSchema {
                 if let Some(min) = self.minimum {
                     if num < min {
                         return Err(ValidationError::OutOfRange(format!(
-                            "Value {} is less than minimum {}", num, min
+                            "Value {} is less than minimum {}",
+                            num, min
                         )));
                     }
                 }
@@ -262,7 +277,8 @@ impl FieldSchema {
                 if let Some(max) = self.maximum {
                     if num > max {
                         return Err(ValidationError::OutOfRange(format!(
-                            "Value {} exceeds maximum {}", num, max
+                            "Value {} exceeds maximum {}",
+                            num, max
                         )));
                     }
                 }
@@ -273,7 +289,8 @@ impl FieldSchema {
                 if let Some(min) = self.minimum {
                     if num < min {
                         return Err(ValidationError::OutOfRange(format!(
-                            "Value {} is less than minimum {}", num, min
+                            "Value {} is less than minimum {}",
+                            num, min
                         )));
                     }
                 }
@@ -281,7 +298,8 @@ impl FieldSchema {
                 if let Some(max) = self.maximum {
                     if num > max {
                         return Err(ValidationError::OutOfRange(format!(
-                            "Value {} exceeds maximum {}", num, max
+                            "Value {} exceeds maximum {}",
+                            num, max
                         )));
                     }
                 }
@@ -300,7 +318,9 @@ impl FieldSchema {
                 if let Some(min_len) = self.min_length {
                     if items.len() < min_len {
                         return Err(ValidationError::TooShort(format!(
-                            "Array length {} is less than minimum {}", items.len(), min_len
+                            "Array length {} is less than minimum {}",
+                            items.len(),
+                            min_len
                         )));
                     }
                 }
@@ -308,7 +328,9 @@ impl FieldSchema {
                 if let Some(max_len) = self.max_length {
                     if items.len() > max_len {
                         return Err(ValidationError::TooLong(format!(
-                            "Array length {} exceeds maximum {}", items.len(), max_len
+                            "Array length {} exceeds maximum {}",
+                            items.len(),
+                            max_len
                         )));
                     }
                 }
@@ -316,20 +338,23 @@ impl FieldSchema {
                 // Validate array items
                 if let Some(item_schema) = &self.array_item_schema {
                     let mut errors = Vec::new();
-                    
+
                     for (idx, item) in items.iter().enumerate() {
                         let item_path = match &path {
                             Some(p) => format!("{}[{}]", p, idx),
                             None => format!("[{}]", idx),
                         };
-                        
+
                         if let Err(err) = item_schema.validate(item, Some(item_path.clone())) {
                             errors.push(err);
                         }
                     }
 
                     if !errors.is_empty() {
-                        return Err(ValidationError::composite_at(errors, path.unwrap_or_default()));
+                        return Err(ValidationError::composite_at(
+                            errors,
+                            path.unwrap_or_default(),
+                        ));
                     }
                 }
             }
@@ -338,7 +363,8 @@ impl FieldSchema {
             }
             _ => {
                 return Err(ValidationError::InvalidType(format!(
-                    "Expected {:?}, got {:?}", self.field_type, value
+                    "Expected {:?}, got {:?}",
+                    self.field_type, value
                 )));
             }
         }
@@ -347,7 +373,8 @@ impl FieldSchema {
         if let Some(enum_values) = &self.enum_values {
             if !enum_values.contains(value) {
                 return Err(ValidationError::InvalidFormat(format!(
-                    "Value {:?} is not one of the allowed values", value
+                    "Value {:?} is not one of the allowed values",
+                    value
                 )));
             }
         }
@@ -498,8 +525,19 @@ mod tests {
     fn test_basic_schema_validation() {
         let schema = Schema::builder()
             .required_field("name", FieldSchema::string().with_min_length(2).build())
-            .required_field("age", FieldSchema::integer().with_minimum(0).with_maximum(120).build())
-            .optional_field("email", FieldSchema::string().with_pattern(r"^\S+@\S+\.\S+$").build())
+            .required_field(
+                "age",
+                FieldSchema::integer()
+                    .with_minimum(0)
+                    .with_maximum(120)
+                    .build(),
+            )
+            .optional_field(
+                "email",
+                FieldSchema::string()
+                    .with_pattern(r"^\S+@\S+\.\S+$")
+                    .build(),
+            )
             .build();
 
         // Valid object
@@ -550,8 +588,12 @@ mod tests {
         let person_schema = Schema::builder()
             .required_field("name", FieldSchema::string().build())
             .required_field("address", FieldSchema::object(address_schema).build())
-            .optional_field("hobbies", FieldSchema::array(FieldSchema::string().build())
-                .with_max_length(5).build())
+            .optional_field(
+                "hobbies",
+                FieldSchema::array(FieldSchema::string().build())
+                    .with_max_length(5)
+                    .build(),
+            )
             .build();
 
         // Valid nested object

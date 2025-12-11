@@ -199,8 +199,7 @@ pub struct CircuitHealth {
     pub estimated_time_to_retry: Option<Duration>,
 }
 
-/// Advanced implementation of circuit breaker pattern
-#[derive(Debug)]
+    /// Advanced implementation of circuit breaker pattern
 pub struct CircuitBreaker {
     /// Name of this circuit breaker (for metrics and logging)
     name: String,
@@ -834,23 +833,23 @@ impl CircuitBreaker {
                 CircuitState::Open => 1.0,
                 CircuitState::HalfOpen => 2.0,
             };
-            gauge!(&format!("{}.state", prefix), state_value);
+            gauge!(format!("{}.state", prefix), state_value);
             
             // Error rate
-            gauge!(&format!("{}.error_rate", prefix), stats.window.failure_rate());
+            gauge!(format!("{}.error_rate", prefix), stats.window.failure_rate());
             
             // Sample count
-            gauge!(&format!("{}.sample_count", prefix), stats.window.total() as f64);
+            gauge!(format!("{}.sample_count", prefix), stats.window.total() as f64);
             
             // Failure count
-            gauge!(&format!("{}.failure_count", prefix), stats.window.failure_count() as f64);
+            gauge!(format!("{}.failure_count", prefix), stats.window.failure_count() as f64);
             
             // Time in state
-            gauge!(&format!("{}.time_in_state_ms", prefix), stats.last_state_change.elapsed().as_millis() as f64);
+            gauge!(format!("{}.time_in_state_ms", prefix), stats.last_state_change.elapsed().as_millis() as f64);
             
             // Consecutive successes in half-open
             if stats.state == CircuitState::HalfOpen {
-                gauge!(&format!("{}.consecutive_successes", prefix), stats.consecutive_successes as f64);
+                gauge!(format!("{}.consecutive_successes", prefix), stats.consecutive_successes as f64);
             }
         }
         

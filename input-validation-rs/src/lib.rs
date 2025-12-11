@@ -13,11 +13,11 @@
 //! - Protection against common security vulnerabilities
 //! - Comprehensive error handling
 
-mod errors;
-mod schema;
 mod builder;
-pub mod validators;
+mod errors;
 pub mod sanitizers;
+mod schema;
+pub mod validators;
 
 pub use builder::ValidationBuilder;
 pub use errors::{ValidationError, ValidationResult};

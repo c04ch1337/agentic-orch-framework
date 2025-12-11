@@ -21,7 +21,7 @@ export async function executeCommand(message: string, apiKey?: string): Promise<
     try {
         const storedApiKey = apiKey || localStorage.getItem('phoenix_orch_api_key') || '';
 
-        const response = await fetch('http://localhost:8000/api/v1/execute', {
+        const response = await fetch('http://localhost:8282/api/v1/execute', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -49,7 +49,7 @@ export async function executeCommand(message: string, apiKey?: string): Promise<
  */
 export async function testApiKey(apiKey: string): Promise<boolean> {
     try {
-        const response = await fetch('http://localhost:8000/api/v1/execute', {
+        const response = await fetch('http://localhost:8282/api/v1/execute', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

@@ -3,28 +3,27 @@
 // Implements the ToolsService gRPC server with Enhanced Validation
 // Provides comprehensive command parameter validation and sanitization
 
-use tonic::{transport::Server, Request, Response, Status};
-use std::sync::Arc;
-use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use serde_json::json;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Instant;
+use tonic::{transport::Server, Request, Response, Status};
 
 // Import the tool-sdk for API client management
 use tool_sdk::{
-    config::{ConfigProvider, EnvConfigProvider, CompositeConfigProvider, ServiceConfig},
+    config::{CompositeConfigProvider, ConfigProvider, EnvConfigProvider, ServiceConfig},
     serpapi::SerpAPIClient,
     serpapi::SerpAPIConfig,
-    Resilience, RetryConfig, CircuitBreakerConfig,
+    CircuitBreakerConfig, Resilience, RetryConfig,
 };
 
- // Import our validation module (used by tool_manager and tools)
- mod validation;
- mod tool_manager;
- mod tools;
-
+// Import our validation module (used by tool_manager and tools)
+mod tool_manager;
+mod tools;
+mod validation;
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -35,49 +34,41 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    tools_service_server::{ToolsService, ToolsServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
-    ToolRequest,
-    ToolResponse,
-    ListToolsRequest,
-    ListToolsResponse,
-    HealthRequest,
-    HealthResponse,
-    EmergencyDirective,
-    DirectiveResponse,
+    tools_service_server::{ToolsService, ToolsServiceServer},
+    DirectiveResponse, EmergencyDirective, HealthRequest, HealthResponse, ListToolsRequest,
+    ListToolsResponse, ToolRequest, ToolResponse,
 };
 
- // Define the Tools Server Structure
- #[derive(Debug)]
- pub struct ToolsServer {
-     // SDK API clients
-     serpapi_client: SerpAPIClient,
-     // Configuration provider for environment variables
-     config_provider: Arc<dyn ConfigProvider>,
- }
+// Define the Tools Server Structure
+#[derive(Debug)]
+pub struct ToolsServer {
+    // SDK API clients
+    serpapi_client: SerpAPIClient,
+    // Configuration provider for environment variables
+    config_provider: Arc<dyn ConfigProvider>,
+}
 
 impl Default for ToolsServer {
     fn default() -> Self {
         // Create a service-specific ConfigProvider
         // First, create environment-based provider with proper prefixes
-        let env_provider = EnvConfigProvider::new()
-            .with_prefix("PHOENIX");
-            
+        let env_provider = EnvConfigProvider::new().with_prefix("PHOENIX");
+
         // Create a composite provider for fallbacks
         let mut composite_provider = CompositeConfigProvider::new();
         composite_provider.add_provider(env_provider);
-        
+
         // Create shared config provider
         let config_provider = Arc::new(composite_provider);
-        
+
         // Initialize SerpAPI client with resilience patterns
-        let serpapi_config = SerpAPIConfig::from_provider(&*config_provider)
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to load SerpAPI config from environment: {}", e);
-                log::info!("Using default SerpAPI configuration");
-                SerpAPIConfig::default()
-            });
-            
+        let serpapi_config = SerpAPIConfig::from_provider(&*config_provider).unwrap_or_else(|e| {
+            log::warn!("Failed to load SerpAPI config from environment: {}", e);
+            log::info!("Using default SerpAPI configuration");
+            SerpAPIConfig::default()
+        });
+
         // Create resilience configuration
         let retry_config = RetryConfig {
             max_retries: 3,
@@ -87,14 +78,14 @@ impl Default for ToolsServer {
             retry_status_codes: vec![429, 500, 502, 503, 504],
             ..RetryConfig::default()
         };
-        
+
         let circuit_breaker_config = CircuitBreakerConfig {
             failure_threshold: 5,
             reset_timeout: std::time::Duration::from_secs(30),
             half_open_success_threshold: 2,
             ..CircuitBreakerConfig::default()
         };
-        
+
         // Create SerpAPI client with builder pattern
         let serpapi_client = SerpAPIClient::builder()
             .api_key(serpapi_config.api_key.clone())
@@ -108,9 +99,9 @@ impl Default for ToolsServer {
                 log::warn!("Using default SerpAPI client configuration");
                 SerpAPIClient::new()
             });
-            
+
         log::info!("SDK clients initialized with resilience patterns");
-        
+
         Self {
             serpapi_client,
             config_provider,
@@ -132,7 +123,7 @@ impl ToolsService for ToolsServer {
         let req_data = request.into_inner();
         let tool_name = req_data.tool_name;
         let parameters = req_data.parameters;
-        
+
         log::info!("Received ExecuteTool request: tool_name={}", tool_name);
 
         // Build ToolContext and dispatch via the ToolManager
@@ -182,14 +173,17 @@ impl ToolsService for ToolsServer {
             }
         }
     }
- 
+
     async fn list_tools(
         &self,
         request: Request<ListToolsRequest>,
     ) -> Result<Response<ListToolsResponse>, Status> {
         let req_data = request.into_inner();
-        
-        log::info!("Received ListTools request: category={:?}", req_data.category);
+
+        log::info!(
+            "Received ListTools request: category={:?}",
+            req_data.category
+        );
 
         let manager = crate::tool_manager::TOOL_MANAGER.clone();
         let category = if req_data.category.is_empty() {
@@ -199,14 +193,17 @@ impl ToolsService for ToolsServer {
         };
 
         let metadata_list = manager.list_tools(category);
-        let tools = metadata_list.into_iter().map(|m| m.id).collect::<Vec<String>>();
+        let tools = metadata_list
+            .into_iter()
+            .map(|m| m.id)
+            .collect::<Vec<String>>();
 
         let reply = ListToolsResponse {
             tools: tools.clone(),
         };
 
         log::info!("Returning {} available tool(s)", reply.tools.len());
- 
+
         Ok(Response::new(reply))
     }
 
@@ -226,51 +223,50 @@ impl ToolsService for ToolsServer {
     }
 }
 
- // Main function to start the gRPC server
- #[tokio::main]
- async fn main() -> Result<(), Box<dyn std::error::Error>> {
-     // Initialize logging
-     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+// Main function to start the gRPC server
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Initialize logging
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-     // Register general-purpose tools in the ToolManager
-     if let Err(e) = tools::register_all_tools().await {
-         log::error!("Failed to register tools: {}", e);
-         return Err(Box::new(e) as Box<dyn std::error::Error>);
-     }
- 
-     // Read address from environment variable or use the default port 50054
-     let addr_str = env::var("TOOLS_SERVICE_ADDR")
-         .unwrap_or_else(|_| "0.0.0.0:50054".to_string());
-     
-     // Parse the address, handling both "0.0.0.0:50054" and "http://127.0.0.1:50054" formats
-     let addr: SocketAddr = if addr_str.starts_with("http://") {
-         addr_str
-             .strip_prefix("http://")
-             .unwrap_or(&addr_str)
-             .parse()?
-     } else {
-         addr_str.parse()?
-     };
- 
-     let tools_server = ToolsServer::default();
- 
-     log::info!("ToolsService starting on {}", addr);
-     println!("ToolsService listening on {}", addr);
- 
-     // Initialize start time
-     let _ = *START_TIME;
- 
-     let tools_server = Arc::new(tools_server);
-     let tools_for_health = tools_server.clone();
- 
-     Server::builder()
-         .add_service(ToolsServiceServer::from_arc(tools_server))
-         .add_service(HealthServiceServer::from_arc(tools_for_health))
-         .serve(addr)
-         .await?;
- 
-     Ok(())
- }
+    // Register general-purpose tools in the ToolManager
+    if let Err(e) = tools::register_all_tools().await {
+        log::error!("Failed to register tools: {}", e);
+        return Err(Box::new(e) as Box<dyn std::error::Error>);
+    }
+
+    // Read address from environment variable or use the default port 50054
+    let addr_str = env::var("TOOLS_SERVICE_ADDR").unwrap_or_else(|_| "0.0.0.0:50054".to_string());
+
+    // Parse the address, handling both "0.0.0.0:50054" and "http://127.0.0.1:50054" formats
+    let addr: SocketAddr = if addr_str.starts_with("http://") {
+        addr_str
+            .strip_prefix("http://")
+            .unwrap_or(&addr_str)
+            .parse()?
+    } else {
+        addr_str.parse()?
+    };
+
+    let tools_server = ToolsServer::default();
+
+    log::info!("ToolsService starting on {}", addr);
+    println!("ToolsService listening on {}", addr);
+
+    // Initialize start time
+    let _ = *START_TIME;
+
+    let tools_server = Arc::new(tools_server);
+    let tools_for_health = tools_server.clone();
+
+    Server::builder()
+        .add_service(ToolsServiceServer::from_arc(tools_server))
+        .add_service(HealthServiceServer::from_arc(tools_for_health))
+        .serve(addr)
+        .await?;
+
+    Ok(())
+}
 
 // Implement HealthService for ToolsServer
 #[tonic::async_trait]
@@ -281,20 +277,18 @@ impl HealthService for ToolsServer {
     ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut system_healthy = true;
-        
+
         let mut dependencies = HashMap::new();
         dependencies.insert("executor".to_string(), "CONFIGURED".to_string());
 
         // Check SerpAPI client health
         let serpapi_status = match self.serpapi_client.health_check().await {
-            Ok(true) => {
-                "HEALTHY".to_string()
-            },
+            Ok(true) => "HEALTHY".to_string(),
             Ok(false) => {
                 log::warn!("SerpAPI client is not healthy");
                 system_healthy = false;
                 "DEGRADED".to_string()
-            },
+            }
             Err(e) => {
                 log::error!("SerpAPI client health check error: {}", e);
                 system_healthy = false;
@@ -302,7 +296,7 @@ impl HealthService for ToolsServer {
             }
         };
         dependencies.insert("serpapi".to_string(), serpapi_status);
-        
+
         // Check for telemetry metrics
         if let Some(serpapi_metrics) = self.serpapi_client.metrics() {
             // Add key metrics to dependencies

@@ -2,22 +2,18 @@
 // Main Entry Point for body-kb-rs
 // Implements the BodyKBService gRPC server
 
-use tonic::{transport::Server, Request, Response, Status};
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use tonic::{Request, Response, Status, transport::Server};
 use tonic_health::server::{HealthReporter, HealthServer};
 
 // Import validation module
 mod validation;
-use validation::{
-    validate_query,
-    validate_store_request,
-    validate_retrieve_request,
-};
+use validation::{validate_query, validate_retrieve_request, validate_store_request};
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -26,16 +22,10 @@ pub mod agi_core {
 }
 
 use agi_core::{
+    HealthRequest, HealthResponse, QueryRequest, QueryResponse, RetrieveRequest, RetrieveResponse,
+    StoreRequest, StoreResponse,
     body_kb_service_server::{BodyKbService, BodyKbServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
-    QueryRequest,
-    QueryResponse,
-    StoreRequest,
-    StoreResponse,
-    RetrieveRequest,
-    RetrieveResponse,
-    HealthRequest,
-    HealthResponse,
 };
 
 // Define the Body KB Server Structure
@@ -51,7 +41,7 @@ impl BodyKbService for BodyKBServer {
         request: Request<QueryRequest>,
     ) -> Result<Response<QueryResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Body-KB received QueryKB request: query={}, limit={}",
             req_data.query,
@@ -61,7 +51,10 @@ impl BodyKbService for BodyKBServer {
         // Validate query and limit using our validation library
         if let Err(err) = validate_query(&req_data.query, req_data.limit) {
             log::warn!("Query validation failed: {}", err);
-            return Err(Status::invalid_argument(format!("Invalid query parameters: {}", err)));
+            return Err(Status::invalid_argument(format!(
+                "Invalid query parameters: {}",
+                err
+            )));
         }
 
         // --- QUERY STUB (Physical State) ---
@@ -71,10 +64,14 @@ impl BodyKbService for BodyKBServer {
         // 3. Getting environmental context (location, orientation, etc.)
         // 4. Returning current embodiment state
         // This KB retrieves current sensor data or digital environment state
-        
+
         // Stub: return mock state data
         let results = vec![
-            format!("Body-KB stub state data for query: '{}' - sensor_status=OK", req_data.query).into_bytes(),
+            format!(
+                "Body-KB stub state data for query: '{}' - sensor_status=OK",
+                req_data.query
+            )
+            .into_bytes(),
             format!("Body-KB stub actuator state: position=normal, health=100%",).into_bytes(),
         ];
 
@@ -100,7 +97,7 @@ impl BodyKbService for BodyKBServer {
         request: Request<StoreRequest>,
     ) -> Result<Response<StoreResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Body-KB received StoreFact request: key={}, value_size={} bytes",
             req_data.key,
@@ -111,14 +108,20 @@ impl BodyKbService for BodyKBServer {
         match validate_store_request(&req_data.key, &req_data.value, &req_data.metadata) {
             Ok((sanitized_key, sanitized_value, sanitized_metadata)) => {
                 // Use sanitized values in real implementation
-                log::info!("Validated store request: key={}, value_size={} bytes",
-                    sanitized_key, sanitized_value.len());
-                
+                log::info!(
+                    "Validated store request: key={}, value_size={} bytes",
+                    sanitized_key,
+                    sanitized_value.len()
+                );
+
                 // For now we just log the sanitized data since this is a stub implementation
-            },
+            }
             Err(err) => {
                 log::warn!("Store request validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid store request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid store request: {}",
+                    err
+                )));
             }
         }
 
@@ -129,7 +132,7 @@ impl BodyKbService for BodyKBServer {
         // 3. Storing in time-series database for state history
         // 4. Triggering state change notifications if needed
         // State updates (e.g., actuator commands, new sensor readings) are persisted here
-        
+
         // Generate a stored ID
         let stored_id = format!("body-{}", req_data.key);
 
@@ -156,7 +159,7 @@ impl BodyKbService for BodyKBServer {
         request: Request<RetrieveRequest>,
     ) -> Result<Response<RetrieveResponse>, Status> {
         let req_data = request.into_inner();
-        
+
         log::info!(
             "Body-KB received Retrieve request: key={}, filters={:?}",
             req_data.key,
@@ -167,14 +170,20 @@ impl BodyKbService for BodyKBServer {
         match validate_retrieve_request(&req_data.key, &req_data.filters) {
             Ok((sanitized_key, sanitized_filters)) => {
                 // Use sanitized values in real implementation
-                log::info!("Validated retrieve request: key={}, filters={:?}",
-                    sanitized_key, sanitized_filters);
-                
+                log::info!(
+                    "Validated retrieve request: key={}, filters={:?}",
+                    sanitized_key,
+                    sanitized_filters
+                );
+
                 // For now we just log the sanitized data since this is a stub implementation
-            },
+            }
             Err(err) => {
                 log::warn!("Retrieve request validation failed: {}", err);
-                return Err(Status::invalid_argument(format!("Invalid retrieve request: {}", err)));
+                return Err(Status::invalid_argument(format!(
+                    "Invalid retrieve request: {}",
+                    err
+                )));
             }
         }
 
@@ -185,16 +194,27 @@ impl BodyKbService for BodyKBServer {
         // 3. Retrieving current sensor/actuator state
         // 4. Returning the stored state value
         // For now, we return a stub response
-        
+
         // Stub: return mock state data
-        let value = format!("Body-KB retrieved state for key: '{}' - status=operational", req_data.key).into_bytes();
+        let value = format!(
+            "Body-KB retrieved state for key: '{}' - status=operational",
+            req_data.key
+        )
+        .into_bytes();
 
         let reply = RetrieveResponse {
             value: value.clone(),
             metadata: {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("kb_type".to_string(), "body".to_string());
-                meta.insert("retrieved_at".to_string(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs().to_string());
+                meta.insert(
+                    "retrieved_at".to_string(),
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                        .to_string(),
+                );
                 meta.insert("state_type".to_string(), "embodiment".to_string());
                 meta
             },
@@ -222,9 +242,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     // Read address from environment variable or use the default port 50058
-    let addr_str = env::var("BODY_KB_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:50058".to_string());
-    
+    let addr_str = env::var("BODY_KB_ADDR").unwrap_or_else(|_| "0.0.0.0:50058".to_string());
+
     // Parse the address, handling both "0.0.0.0:50058" and "http://127.0.0.1:50058" formats
     let addr: SocketAddr = if addr_str.starts_with("http://") {
         addr_str
@@ -243,30 +262,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = *START_TIME;
     let body_kb_server = Arc::new(body_kb_server);
     let kb_for_health = body_kb_server.clone();
-    
+
     // Create a health reporter for the standard gRPC health checking protocol
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
-    
+
     // Register the service with the health reporter
-    health_reporter.set_service_status("BODY_KB_SERVICE", tonic_health::ServingStatus::NotServing).await;
+    health_reporter
+        .set_service_status("BODY_KB_SERVICE", tonic_health::ServingStatus::NotServing)
+        .await;
 
     // Set status to serving only after successful initialization
-    health_reporter.set_service_status("BODY_KB_SERVICE", tonic_health::ServingStatus::Serving).await;
+    health_reporter
+        .set_service_status("BODY_KB_SERVICE", tonic_health::ServingStatus::Serving)
+        .await;
     log::info!("Body-KB Service health status set to SERVING");
 
     Server::builder()
         .add_service(BodyKbServiceServer::from_arc(body_kb_server))
         .add_service(HealthServiceServer::from_arc(kb_for_health))
-        .add_service(health_service)  // Add the standard gRPC health service
-        .serve(addr).
-        await?;
+        .add_service(health_service) // Add the standard gRPC health service
+        .serve(addr)
+        .await?;
 
     Ok(())
 }
 
 #[tonic::async_trait]
 impl HealthService for BodyKBServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut dependencies = HashMap::new();
         dependencies.insert("kb_storage".to_string(), "ACTIVE".to_string());

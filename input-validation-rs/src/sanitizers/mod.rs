@@ -3,16 +3,16 @@
 //! This module provides sanitization functions to clean potentially dangerous inputs.
 //! These sanitizers can be used alongside validators to ensure input safety.
 
-pub mod string;
-pub mod html;
 pub mod command;
+pub mod html;
 pub mod path;
+pub mod string;
 
 // Re-export all sanitizers for convenience
-pub use string::*;
-pub use html::*;
 pub use command::*;
+pub use html::*;
 pub use path::*;
+pub use string::*;
 
 /// Sanitization result containing the sanitized content and information
 /// about whether changes were made during sanitization
@@ -77,9 +77,9 @@ where
 
     for sanitizer in sanitizers {
         let current_result = sanitizer(result.sanitized);
-        
+
         result.sanitized = current_result.sanitized;
-        
+
         if current_result.was_modified {
             result.was_modified = true;
             if let Some(details) = current_result.details {
@@ -106,7 +106,8 @@ mod tests {
         assert_eq!(unmodified.sanitized, "test");
         assert_eq!(unmodified.details, None);
 
-        let modified = SanitizeResult::modified("test_sanitized", Some("removed unsafe chars".to_string()));
+        let modified =
+            SanitizeResult::modified("test_sanitized", Some("removed unsafe chars".to_string()));
         assert_eq!(modified.was_modified, true);
         assert_eq!(modified.sanitized, "test_sanitized");
         assert_eq!(modified.details, Some("removed unsafe chars".to_string()));
@@ -142,7 +143,10 @@ mod tests {
         let result = chain_sanitizers(input, vec![sanitizer1, sanitizer2]);
 
         assert_eq!(result.was_modified, true);
-        assert_eq!(result.sanitized, "Test &lt;script&gt;alert('XSS')&lt;/script&gt;");
+        assert_eq!(
+            result.sanitized,
+            "Test &lt;script&gt;alert('XSS')&lt;/script&gt;"
+        );
         assert!(result.details.unwrap().contains("Replaced <"));
         assert!(result.details.unwrap().contains("Replaced >"));
 
@@ -159,7 +163,7 @@ mod tests {
     fn test_map() {
         let result = SanitizeResult::modified("42", Some("Changed".to_string()));
         let mapped = result.map(|s| s.parse::<i32>().unwrap());
-        
+
         assert_eq!(mapped.sanitized, 42);
         assert_eq!(mapped.was_modified, true);
         assert_eq!(mapped.details, Some("Changed".to_string()));

@@ -16,7 +16,7 @@ impl LogAnalyzer for LogAnalyzerService {
         request: Request<ExecutionLog>,
     ) -> Result<Response<FailureReport>, Status> {
         let log = request.into_inner();
-        
+
         // Simple NLP logic using regex to detect common error patterns
         let severity = if log.raw_log.contains("error") || log.raw_log.contains("fail") {
             FailureReport_Severity::Critical
@@ -25,21 +25,24 @@ impl LogAnalyzer for LogAnalyzerService {
         } else {
             FailureReport_Severity::Success
         };
-        
+
         // Extract root cause summary (simplified)
         let root_cause_summary = if severity != FailureReport_Severity::Success {
             "Failure detected in service execution".to_string()
         } else {
             "Execution successful".to_string()
         };
-        
+
         // Service ID extraction (simplified)
         let service_id = if let Some(line) = log.raw_log.lines().find(|l| l.contains("service")) {
-            line.split_whitespace().nth(1).unwrap_or("unknown").to_string()
+            line.split_whitespace()
+                .nth(1)
+                .unwrap_or("unknown")
+                .to_string()
         } else {
             "unknown".to_string()
         };
-        
+
         Ok(Response::new(FailureReport {
             severity: severity.into(),
             root_cause_summary,
@@ -52,11 +55,11 @@ impl LogAnalyzer for LogAnalyzerService {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "[::]:50075".parse()?;
     let service = LogAnalyzerService::default();
-    
+
     tonic::transport::Server::builder()
         .add_service(LogAnalyzerServer::new(service))
         .serve(addr)
         .await?;
-    
+
     Ok(())
 }

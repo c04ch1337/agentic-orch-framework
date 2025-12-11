@@ -3,22 +3,22 @@
 // Implements the ExecutorService gRPC server
 // PHOENIX ORCH: The Ashen Guard Edition AGI - Windows Native Execution
 
-use tonic::{transport::Server, Request, Response, Status};
-use std::sync::Arc;
-use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
+use tonic::{transport::Server, Request, Response, Status};
 use windows_service::{
     service::{
-        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState,
-        ServiceStatus, ServiceType,
+        ServiceControl, ServiceControlAccept, ServiceExitCode, ServiceState, ServiceStatus,
+        ServiceType,
     },
     service_control_handler::{self, ServiceControlHandler},
     service_dispatcher,
 };
-use std::time::Duration;
 
 const SERVICE_NAME: &str = "PhoenixExecutorService";
 const SERVICE_DISPLAY_NAME: &str = "Phoenix Executor Service";
@@ -29,7 +29,9 @@ const RESTART_DELAY_MS: u32 = 30000; // 30 seconds
 const MAX_RESTART_ATTEMPTS: u32 = 3;
 
 mod execution_logic;
-use execution_logic::{execute_shell_command, execute_python_sandboxed, simulate_input, get_execution_stats};
+use execution_logic::{
+    execute_python_sandboxed, execute_shell_command, get_execution_stats, simulate_input,
+};
 
 // Windows executor module for native control
 #[cfg(target_os = "windows")]
@@ -44,12 +46,7 @@ pub mod agi_core {
 use agi_core::{
     executor_service_server::{ExecutorService, ExecutorServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
-    CommandRequest,
-    CommandResponse,
-    InputRequest,
-    InputResponse,
-    HealthRequest,
-    HealthResponse,
+    CommandRequest, CommandResponse, HealthRequest, HealthResponse, InputRequest, InputResponse,
 };
 
 // Define the Executor Server Structure
@@ -63,17 +60,15 @@ impl ExecutorService for ExecutorServer {
         request: Request<CommandRequest>,
     ) -> Result<Response<CommandResponse>, Status> {
         let req = request.into_inner();
-        
+
         log::info!("Received ExecuteCommand request: {}", req.command);
 
         match execute_shell_command(&req.command, &req.args, &req.env).await {
-            Ok((stdout, stderr, exit_code)) => {
-                Ok(Response::new(CommandResponse {
-                    stdout,
-                    stderr,
-                    exit_code,
-                }))
-            }
+            Ok((stdout, stderr, exit_code)) => Ok(Response::new(CommandResponse {
+                stdout,
+                stderr,
+                exit_code,
+            })),
             Err(e) => {
                 log::error!("Command execution failed: {}", e);
                 Ok(Response::new(CommandResponse {
@@ -90,16 +85,14 @@ impl ExecutorService for ExecutorServer {
         request: Request<InputRequest>,
     ) -> Result<Response<InputResponse>, Status> {
         let req = request.into_inner();
-        
+
         log::info!("Received SimulateInput request: {}", req.input_type);
 
         match simulate_input(&req.input_type, &req.parameters) {
-            Ok(_) => {
-                Ok(Response::new(InputResponse {
-                    success: true,
-                    error: "".to_string(),
-                }))
-            }
+            Ok(_) => Ok(Response::new(InputResponse {
+                success: true,
+                error: "".to_string(),
+            })),
             Err(e) => {
                 log::error!("Input simulation failed: {}", e);
                 Ok(Response::new(InputResponse {
@@ -132,30 +125,28 @@ extern "system" fn ffi_service_main(_: u32, _: *mut *mut u16) {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     log::info!("Starting PHOENIX ORCH Executor Service - Windows Native Edition");
-    
+
     // Check if running on Windows and initialize
     #[cfg(target_os = "windows")]
     {
         log::info!("Windows platform detected - Using native Job Object control");
-        
+
         // Create sandbox directory if it doesn't exist
         let sandbox_path = std::path::Path::new(r"C:\phoenix_sandbox");
         if !sandbox_path.exists() {
-            std::fs::create_dir_all(sandbox_path)
-                .expect("Failed to create sandbox directory");
+            std::fs::create_dir_all(sandbox_path).expect("Failed to create sandbox directory");
             log::info!("Created sandbox directory at: {}", sandbox_path.display());
         }
     }
-    
+
     #[cfg(not(target_os = "windows"))]
     {
         log::warn!("Non-Windows platform detected - Limited execution capabilities");
     }
 
     // Read address from environment variable or use the default port 50055 (as per requirements)
-    let addr_str = env::var("EXECUTOR_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:50055".to_string());
-    
+    let addr_str = env::var("EXECUTOR_ADDR").unwrap_or_else(|_| "0.0.0.0:50055".to_string());
+
     let addr: SocketAddr = if addr_str.starts_with("http://") {
         addr_str
             .strip_prefix("http://")
@@ -168,8 +159,11 @@ extern "system" fn ffi_service_main(_: u32, _: *mut *mut u16) {
     let executor_server = ExecutorServer::default();
 
     log::info!("PHOENIX ORCH Executor Service starting on {}", addr);
-    println!("PHOENIX ORCH Executor Service (Windows Native) listening on {}", addr);
-    
+    println!(
+        "PHOENIX ORCH Executor Service (Windows Native) listening on {}",
+        addr
+    );
+
     // Log execution configuration
     let exec_stats = execution_logic::get_execution_stats();
     log::info!("Execution configuration:");
@@ -206,8 +200,11 @@ extern "system" fn ffi_service_main(_: u32, _: *mut *mut u16) {
     if let Err(e) = status_handle.set_recovery_config(&recovery_config) {
         log::error!("Failed to set service recovery config: {}", e);
     } else {
-        log::info!("Service recovery settings configured: {} restart attempts, {}ms delay",
-            MAX_RESTART_ATTEMPTS, RESTART_DELAY_MS);
+        log::info!(
+            "Service recovery settings configured: {} restart attempts, {}ms delay",
+            MAX_RESTART_ATTEMPTS,
+            RESTART_DELAY_MS
+        );
     }
 
     // Update service status to running
@@ -229,15 +226,13 @@ extern "system" fn ffi_service_main(_: u32, _: *mut *mut u16) {
     let exec_for_health = executor_server.clone();
 
     // Run the gRPC server
-    let server_result = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(async {
-            Server::builder()
-                .add_service(ExecutorServiceServer::from_arc(executor_server))
-                .add_service(HealthServiceServer::from_arc(exec_for_health))
-                .serve(addr)
-                .await
-        });
+    let server_result = tokio::runtime::Runtime::new().unwrap().block_on(async {
+        Server::builder()
+            .add_service(ExecutorServiceServer::from_arc(executor_server))
+            .add_service(HealthServiceServer::from_arc(exec_for_health))
+            .serve(addr)
+            .await
+    });
 
     if let Err(e) = server_result {
         log::error!("Server error: {}", e);
@@ -256,20 +251,23 @@ extern "system" fn ffi_service_main(_: u32, _: *mut *mut u16) {
 
 #[tonic::async_trait]
 impl HealthService for ExecutorServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut dependencies = HashMap::new();
-        
+
         #[cfg(target_os = "windows")]
         {
             dependencies.insert("windows_job_object".to_string(), "AVAILABLE".to_string());
             dependencies.insert("process_watchdog".to_string(), "AVAILABLE".to_string());
             dependencies.insert("sandbox_directory".to_string(), "CONFIGURED".to_string());
         }
-        
+
         dependencies.insert("shell".to_string(), "AVAILABLE".to_string());
         dependencies.insert("input_simulation".to_string(), "AVAILABLE".to_string());
-        
+
         Ok(Response::new(HealthResponse {
             healthy: true,
             service_name: "executor-service-windows-native".to_string(),

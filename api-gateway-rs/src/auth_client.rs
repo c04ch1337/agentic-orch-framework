@@ -1,6 +1,6 @@
+use once_cell::sync::Lazy;
 use std::sync::Arc;
 use std::time::Duration;
-use once_cell::sync::Lazy;
 use tokio::sync::RwLock;
 
 use serde::{Deserialize, Serialize};
@@ -20,25 +20,25 @@ pub struct TokenData {
 pub enum AuthError {
     #[error("Authentication failed: {0}")]
     AuthenticationFailed(String),
-    
+
     #[error("Authorization failed: {0}")]
     AuthorizationFailed(String),
-    
+
     #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigurationError(String),
-    
+
     #[error("Token error: {0}")]
     TokenError(String),
-    
+
     #[error("Internal error: {0}")]
     InternalError(String),
-    
+
     #[error("Communication error: {0}")]
     CommunicationError(#[from] tonic::transport::Error),
-    
+
     #[error("gRPC error: {0}")]
     GrpcError(#[from] tonic::Status),
 }
@@ -107,7 +107,7 @@ impl MockAuthClient {
         ca_path: Option<&str>,
     ) -> Result<Self, AuthError> {
         log::info!("Creating mock auth client (auth service integration disabled)");
-        
+
         let config = ConnectionConfig {
             addr: addr.to_string(),
             service_id: service_id.to_string(),
@@ -118,10 +118,10 @@ impl MockAuthClient {
             key_path: key_path.map(|s| s.to_string()),
             ca_path: ca_path.map(|s| s.to_string()),
         };
-        
+
         Ok(Self { config })
     }
-    
+
     pub async fn validate_token(&self, token: &str) -> Result<TokenData, AuthError> {
         // Mock validation - accept any token starting with "valid-"
         if token.starts_with("valid-") || token.starts_with("Bearer valid-") {
@@ -133,15 +133,21 @@ impl MockAuthClient {
                 expires_at: chrono::Utc::now().timestamp() + 3600,
             })
         } else {
-            Err(AuthError::AuthenticationFailed("Invalid mock token".to_string()))
+            Err(AuthError::AuthenticationFailed(
+                "Invalid mock token".to_string(),
+            ))
         }
     }
-    
-    pub async fn check_permission(&self, _token: &str, permission: &str) -> Result<bool, AuthError> {
+
+    pub async fn check_permission(
+        &self,
+        _token: &str,
+        permission: &str,
+    ) -> Result<bool, AuthError> {
         // Mock permission check - allow execute:invoke
         Ok(permission == "execute:invoke")
     }
-    
+
     pub async fn validate_api_key(&self, api_key: &str) -> Result<TokenData, AuthError> {
         // Mock API key validation
         Ok(TokenData {
@@ -152,16 +158,16 @@ impl MockAuthClient {
             expires_at: chrono::Utc::now().timestamp() + 86400,
         })
     }
-    
+
     pub async fn revoke_token(&self, _token: &str, _revoke_all: bool) -> Result<(), AuthError> {
         // Mock revocation
         Ok(())
     }
-    
+
     pub async fn is_healthy(&self) -> bool {
         true // Mock is always healthy
     }
-    
+
     pub async fn get_service_token(&self) -> Result<String, AuthError> {
         // Mock implementation: return a static service token derived from the client_id
         Ok(format!("mock-service-token-{}", self.config.client_id))
@@ -170,43 +176,51 @@ impl MockAuthClient {
 
 pub async fn validate_token(token: &str) -> Result<TokenData, AuthError> {
     let auth_client_guard = AUTH_CLIENT.read().await;
-    
+
     match &*auth_client_guard {
         Some(client) => client.validate_token(token).await,
-        None => Err(AuthError::ConfigurationError("Auth client not initialized".to_string())),
+        None => Err(AuthError::ConfigurationError(
+            "Auth client not initialized".to_string(),
+        )),
     }
 }
 
 pub async fn check_permission(token: &str, permission: &str) -> Result<bool, AuthError> {
     let auth_client_guard = AUTH_CLIENT.read().await;
-    
+
     match &*auth_client_guard {
         Some(client) => client.check_permission(token, permission).await,
-        None => Err(AuthError::ConfigurationError("Auth client not initialized".to_string())),
+        None => Err(AuthError::ConfigurationError(
+            "Auth client not initialized".to_string(),
+        )),
     }
 }
 
 pub async fn validate_api_key(api_key: &str) -> Result<TokenData, AuthError> {
     let auth_client_guard = AUTH_CLIENT.read().await;
-    
+
     match &*auth_client_guard {
         Some(client) => client.validate_api_key(api_key).await,
-        None => Err(AuthError::ConfigurationError("Auth client not initialized".to_string())),
+        None => Err(AuthError::ConfigurationError(
+            "Auth client not initialized".to_string(),
+        )),
     }
 }
 
 pub async fn revoke_token(token: &str, revoke_all: bool) -> Result<(), AuthError> {
     let auth_client_guard = AUTH_CLIENT.read().await;
-    
+
     match &*auth_client_guard {
         Some(client) => client.revoke_token(token, revoke_all).await,
-        None => Err(AuthError::ConfigurationError("Auth client not initialized".to_string())),
+        None => Err(AuthError::ConfigurationError(
+            "Auth client not initialized".to_string(),
+        )),
     }
 }
 
 pub async fn is_auth_healthy() -> bool {
     let auth_client_guard = AUTH_CLIENT.read().await;
-    
+
     match &*auth_client_guard {
         Some(client) => client.is_healthy().await,
         None => false,

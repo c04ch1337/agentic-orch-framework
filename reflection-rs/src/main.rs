@@ -2,13 +2,13 @@
 // Reflection Service - Self-reflection and action evaluation
 // Port 50065
 
-use tonic::{transport::Server, Request, Response, Status};
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
+use tonic::{transport::Server, Request, Response, Status};
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -17,16 +17,10 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    reflection_service_server::{ReflectionService, ReflectionServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
-    ReflectionRequest,
-    ReflectionResult,
-    EvaluationRequest,
-    EvaluationResult,
-    MetaCognitiveRequest,
-    MetaCognitiveResult,
-    HealthRequest,
-    HealthResponse,
+    reflection_service_server::{ReflectionService, ReflectionServiceServer},
+    EvaluationRequest, EvaluationResult, HealthRequest, HealthResponse, MetaCognitiveRequest,
+    MetaCognitiveResult, ReflectionRequest, ReflectionResult,
 };
 
 #[derive(Debug, Default)]
@@ -37,7 +31,8 @@ pub struct ReflectionServer {
 
 impl ReflectionServer {
     fn increment_reflection_count(&self) -> u64 {
-        self.reflection_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        self.reflection_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -49,9 +44,13 @@ impl ReflectionService for ReflectionServer {
     ) -> Result<Response<ReflectionResult>, Status> {
         let req = request.into_inner();
         let count = self.increment_reflection_count();
-        
-        log::info!("ReflectOnAction #{}: action='{}', success={}", 
-            count, req.action_description, req.success);
+
+        log::info!(
+            "ReflectOnAction #{}: action='{}', success={}",
+            count,
+            req.action_description,
+            req.success
+        );
 
         // Analyze the action and its outcome
         let analysis = if req.success {
@@ -108,31 +107,46 @@ impl ReflectionService for ReflectionServer {
     ) -> Result<Response<EvaluationResult>, Status> {
         let req = request.into_inner();
         let count = self.increment_reflection_count();
-        
-        log::info!("EvaluateAction #{}: action='{}', goal='{}'", 
-            count, req.proposed_action, req.goal);
+
+        log::info!(
+            "EvaluateAction #{}: action='{}', goal='{}'",
+            count,
+            req.proposed_action,
+            req.goal
+        );
 
         // Analyze the proposed action
         let has_constraints = !req.constraints.is_empty();
-        
+
         // Simple heuristic evaluation
-        let (recommended, rationale) = if req.proposed_action.to_lowercase().contains("delete") 
-            || req.proposed_action.to_lowercase().contains("destroy") {
+        let (recommended, rationale) = if req.proposed_action.to_lowercase().contains("delete")
+            || req.proposed_action.to_lowercase().contains("destroy")
+        {
             (false, "Action involves potentially destructive operations. Recommend careful review before proceeding.".to_string())
         } else if req.proposed_action.to_lowercase().contains("backup")
-            || req.proposed_action.to_lowercase().contains("verify") {
-            (true, "Action involves safety-oriented operations. Recommended to proceed.".to_string())
+            || req.proposed_action.to_lowercase().contains("verify")
+        {
+            (
+                true,
+                "Action involves safety-oriented operations. Recommended to proceed.".to_string(),
+            )
         } else {
-            (true, format!(
-                "Action '{}' appears aligned with goal '{}'. Proceed with standard caution.",
-                req.proposed_action, req.goal
-            ))
+            (
+                true,
+                format!(
+                    "Action '{}' appears aligned with goal '{}'. Proceed with standard caution.",
+                    req.proposed_action, req.goal
+                ),
+            )
         };
 
         // Identify potential risks
         let risks = if has_constraints {
             vec![
-                format!("Must operate within {} constraint(s)", req.constraints.len()),
+                format!(
+                    "Must operate within {} constraint(s)",
+                    req.constraints.len()
+                ),
                 "Unexpected side effects possible".to_string(),
             ]
         } else {
@@ -166,16 +180,21 @@ impl ReflectionService for ReflectionServer {
     ) -> Result<Response<MetaCognitiveResult>, Status> {
         let req = request.into_inner();
         let count = self.increment_reflection_count();
-        
-        log::info!("MetaCognition #{}: topic='{}', depth={}", 
-            count, req.topic, req.depth);
+
+        log::info!(
+            "MetaCognition #{}: topic='{}', depth={}",
+            count,
+            req.topic,
+            req.depth
+        );
 
         // Self-assessment based on topic
         let self_assessment = format!(
             "Self-analysis of '{}' at depth level {}/5: \
              Current capabilities are functional with room for enhancement. \
              System operates reliably within defined parameters.",
-            req.topic, req.depth.min(5).max(1)
+            req.topic,
+            req.depth.min(5).max(1)
         );
 
         // Identify strengths
@@ -216,14 +235,22 @@ impl ReflectionService for ReflectionServer {
 
 #[tonic::async_trait]
 impl HealthService for ReflectionServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
-        let reflection_count = self.reflection_count.load(std::sync::atomic::Ordering::SeqCst);
-        
+        let reflection_count = self
+            .reflection_count
+            .load(std::sync::atomic::Ordering::SeqCst);
+
         let mut dependencies = HashMap::new();
         dependencies.insert("reflection_engine".to_string(), "ACTIVE".to_string());
-        dependencies.insert("reflections_processed".to_string(), reflection_count.to_string());
-        
+        dependencies.insert(
+            "reflections_processed".to_string(),
+            reflection_count.to_string(),
+        );
+
         Ok(Response::new(HealthResponse {
             healthy: true,
             service_name: "reflection-service".to_string(),
@@ -238,11 +265,14 @@ impl HealthService for ReflectionServer {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let addr_str = env::var("REFLECTION_SERVICE_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:50065".to_string());
-    
+    let addr_str =
+        env::var("REFLECTION_SERVICE_ADDR").unwrap_or_else(|_| "0.0.0.0:50065".to_string());
+
     let addr: SocketAddr = if addr_str.starts_with("http://") {
-        addr_str.strip_prefix("http://").unwrap_or(&addr_str).parse()?
+        addr_str
+            .strip_prefix("http://")
+            .unwrap_or(&addr_str)
+            .parse()?
     } else {
         addr_str.parse()?
     };

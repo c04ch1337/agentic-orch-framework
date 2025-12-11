@@ -16,10 +16,7 @@ pub struct ValidationBuilder<T> {
 impl<T> ValidationBuilder<T> {
     /// Create a new validation builder
     pub fn new(value: T) -> Self {
-        Self {
-            value,
-            error: None,
-        }
+        Self { value, error: None }
     }
 
     /// Apply a validation function and return a new builder with the result
@@ -99,7 +96,9 @@ impl ValidationBuilder<String> {
     pub fn not_empty(self) -> Self {
         self.validate(|s| {
             if s.is_empty() {
-                Err(ValidationError::TooShort("String must not be empty".to_string()))
+                Err(ValidationError::TooShort(
+                    "String must not be empty".to_string(),
+                ))
             } else {
                 Ok(())
             }
@@ -144,14 +143,17 @@ impl ValidationBuilder<String> {
                     Ok(())
                 } else {
                     Err(ValidationError::PatternMismatch(format!(
-                        "String does not match pattern: {}", 
+                        "String does not match pattern: {}",
                         pattern
                     )))
                 }
             }),
             Err(e) => ValidationBuilder {
                 value: self.value,
-                error: Some(ValidationError::Generic(format!("Invalid regex pattern: {}", e))),
+                error: Some(ValidationError::Generic(format!(
+                    "Invalid regex pattern: {}",
+                    e
+                ))),
             },
         }
     }
@@ -224,7 +226,9 @@ impl<T> ValidationBuilder<Option<T>> {
     pub fn required(self) -> Self {
         self.validate(|opt| {
             if opt.is_none() {
-                Err(ValidationError::MissingFields("Required value is missing".to_string()))
+                Err(ValidationError::MissingFields(
+                    "Required value is missing".to_string(),
+                ))
             } else {
                 Ok(())
             }
@@ -284,23 +288,21 @@ mod tests {
             .min_length(3)
             .max_length(10)
             .finish();
-        
+
         assert!(result.is_ok());
-        
+
         // Test failed validation
-        let result = ValidationBuilder::new("".to_string())
-            .not_empty()
-            .finish();
-        
+        let result = ValidationBuilder::new("".to_string()).not_empty().finish();
+
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ValidationError::TooShort(_)));
-        
+
         // Test chained validation that fails at a later step
         let result = ValidationBuilder::new("hello".to_string())
             .not_empty()
-            .max_length(3)  // Should fail here
+            .max_length(3) // Should fail here
             .finish();
-        
+
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ValidationError::TooLong(_)));
     }
@@ -313,56 +315,59 @@ mod tests {
             .max(10)
             .between(1, 8)
             .finish();
-        
+
         assert!(result.is_ok());
-        
+
         // Test failed validation - below minimum
-        let result = ValidationBuilder::new(5)
-            .min(10)
-            .finish();
-        
+        let result = ValidationBuilder::new(5).min(10).finish();
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::OutOfRange(_)));
-        
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::OutOfRange(_)
+        ));
+
         // Test failed validation - outside range
-        let result = ValidationBuilder::new(5)
-            .between(10, 20)
-            .finish();
-        
+        let result = ValidationBuilder::new(5).between(10, 20).finish();
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::OutOfRange(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::OutOfRange(_)
+        ));
     }
 
     #[test]
     fn test_option_validation() {
         // Test Some value
-        let result = ValidationBuilder::new(Some(5))
-            .required()
-            .finish();
-        
+        let result = ValidationBuilder::new(Some(5)).required().finish();
+
         assert!(result.is_ok());
-        
+
         // Test None value with required
         let result = ValidationBuilder::new(Option::<i32>::None)
             .required()
             .finish();
-        
+
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ValidationError::MissingFields(_)));
-        
+        assert!(matches!(
+            result.unwrap_err(),
+            ValidationError::MissingFields(_)
+        ));
+
         // Test unwrap_or_err with Some
         let result = ValidationBuilder::new(Some(5))
             .unwrap_or_err("Missing value")
             .finish();
-        
+
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 5);
-        
+
         // Test unwrap_or_err with None
         let result = ValidationBuilder::new(Option::<i32>::None)
             .unwrap_or_err("Missing value")
             .finish();
-        
+
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ValidationError::Generic(_)));
     }

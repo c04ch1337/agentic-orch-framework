@@ -109,17 +109,18 @@ where
             Err(error) => {
                 let context = context_fn().into();
                 let error_message = format!("{} ({})", error, context);
-                
-                // If the error is already our Error type, add the context to it
-                if let Some(mut our_error) = error.downcast_ref::<Error>().cloned() {
-                    // Add all context data to the error
-                    let mut new_error = our_error.clone();
+
+                // If the error is already our framework `Error` type, enrich it
+                // with the additional context. Otherwise, wrap it in a new
+                // `Error` instance with kind `Internal`.
+                let std_err: &(dyn StdError + 'static) = &error;
+                if let Some(existing) = std_err.downcast_ref::<Error>() {
+                    let mut new_error = existing.clone();
                     for (k, v) in context.data {
                         new_error = new_error.context(k, v);
                     }
                     Err(new_error)
                 } else {
-                    // Convert other error types to our Error type
                     Err(Error::new(ErrorKind::Internal, error_message).cause(error))
                 }
             }

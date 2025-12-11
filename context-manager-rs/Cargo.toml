@@ -16,6 +16,7 @@ futures = "0.3"
 # gRPC and Protocol Buffers
 tonic = "0.14.2"
 prost = "0.14.1"
+tonic-prost = "0.14.2"
 
 # Logging and tracing
 tracing = "0.1.43"

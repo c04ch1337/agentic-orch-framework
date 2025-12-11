@@ -58,7 +58,48 @@ impl Default for ReporterConfig {
             rate_limit: 50,
             auth_token: None,
             tags: std::collections::HashMap::new(),
+            }
         }
+    
+    impl TryFrom&lt;config::Config&gt; for ReporterConfig {
+    type Error = config::ConfigError;
+
+    fn try_from(cfg: config::Config) -&gt; std::result::Result&lt;Self, Self::Error&gt; {
+        // Start with defaults and override from config where present.
+        let mut base = ReporterConfig::default();
+
+        if let Ok(endpoint) = cfg.get::&lt;String&gt;("error_reporting.report_endpoint") {
+            base.report_endpoint = Some(endpoint);
+        }
+        if let Ok(service_name) = cfg.get::&lt;String&gt;("error_reporting.service_name") {
+            base.service_name = service_name;
+        }
+        if let Ok(environment) = cfg.get::&lt;String&gt;("error_reporting.environment") {
+            base.environment = environment;
+        }
+        if let Ok(batch_size) = cfg.get::&lt;usize&gt;("error_reporting.batch_size") {
+            base.batch_size = batch_size;
+        }
+        if let Ok(flush_interval) = cfg.get::&lt;u64&gt;("error_reporting.flush_interval_secs") {
+            base.flush_interval_secs = flush_interval;
+        }
+        if let Ok(record_metrics) = cfg.get::&lt;bool&gt;("error_reporting.record_metrics") {
+            base.record_metrics = record_metrics;
+        }
+        if let Ok(in_memory_limit) = cfg.get::&lt;usize&gt;("error_reporting.in_memory_limit") {
+            base.in_memory_limit = in_memory_limit;
+        }
+        if let Ok(rate_limit) = cfg.get::&lt;usize&gt;("error_reporting.rate_limit") {
+            base.rate_limit = rate_limit;
+        }
+        if let Ok(token) = cfg.get::&lt;String&gt;("error_reporting.auth_token") {
+            base.auth_token = Some(token);
+        }
+        if let Ok(tags) = cfg.get::&lt;std::collections::HashMap&lt;String, String&gt;&gt;("error_reporting.tags") {
+            base.tags = tags;
+        }
+
+        Ok(base)
     }
 }
 
@@ -316,13 +357,15 @@ impl ErrorReporter {
 // Clone implementation for the error reporter
 impl Clone for ErrorReporter {
     fn clone(&self) -> Self {
-        // Create a clone with a new sender that points to the same worker
+        // Create a clone with an independent queue/recent-error buffer and a
+        // fresh channel/sender. This is sufficient for the background worker
+        // use-case and avoids cloning the internal RwLock directly.
         let (sender, _) = mpsc::channel(100);
-        
+
         Self {
             config: self.config.clone(),
             queue: Mutex::new(VecDeque::with_capacity(self.config.batch_size)),
-            recent_errors: self.recent_errors.clone(),
+            recent_errors: RwLock::new(VecDeque::with_capacity(self.config.in_memory_limit)),
             client: self.client.clone(),
             sender,
             worker_handle: Mutex::new(None),
@@ -423,7 +466,7 @@ fn record_error_metrics(error: &Error) {
     // Counter by service
     if let Some(service) = &error.service {
         let service_label = format!("errors.service.{}", service);
-        counter!(&service_label, 1);
+        counter!(service_label, 1);
     } else {
         counter!("errors.service.unknown", 1);
     }

@@ -12,7 +12,10 @@ use crate::types::{Error, ErrorKind, Severity};
 static SENSITIVE_PATTERNS: Lazy<Vec<Regex>> = Lazy::new(|| {
     vec![
         // API keys, tokens, credentials
-        Regex::new(r"(?i)(api[_-]?key|token|secret|password|credential)s?[\"']?\s*[=:]\s*[\"']?([^\"'\s]+)").unwrap(),
+        Regex::new(
+            r#"(?i)((?:api[_\-\s]?key)|token|secret|password|credential)s?["']?\s*[=:]\s*["']?([^"'\s]+)"#,
+        )
+        .unwrap(),
         
         // OAuth 2.0 tokens
         Regex::new(r"bearer\s+([a-zA-Z0-9\._\-]+)").unwrap(),

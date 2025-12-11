@@ -41,6 +41,12 @@ chrono = { version = "0.4", features = ["serde"] }
 # Backtrace capture
 backtrace = "0.3"
 
+# Additional utilities used by the framework
+once_cell = "1.19"
+regex = "1.10"
+rand = "0.8"
+futures = "0.3"
+
 [dev-dependencies]
 tokio-test = "0.4"
 test-log = "0.2"

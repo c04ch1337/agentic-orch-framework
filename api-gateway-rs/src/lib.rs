@@ -1,39 +1,31 @@
-use std::sync::Arc;
-use std::collections::HashMap;
-use tokio::sync::{RwLock, Mutex};
 use axum::{
-    Router,
-    routing::{get, post},
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-    extract::{State, Path},
+    body::{to_bytes, Body, Bytes},
+    extract::{Path, State},
     http::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE},
+    http::StatusCode,
     middleware::{self, Next},
-    body::{Body, Bytes, to_bytes},
-    response::{Response},
-    BoxError,
+    response::IntoResponse,
+    response::Response,
+    routing::{get, post},
+    BoxError, Json, Router,
 };
 use serde::{Deserialize, Serialize};
-use tower_http::cors::{CorsLayer, Any};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{Mutex, RwLock};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 
-pub mod validation;
-pub mod secrets_client;
 pub mod auth_client;
 pub mod auth_middleware;
 pub mod phoenix_auth;
 pub mod rate_limit;
+pub mod secrets_client;
+pub mod validation;
 
 use validation::{
-    validate_content_type,
-    validate_request,
-    sanitize_request,
-    sanitize_json_input,
-    payload_limit_config,
-    ApiValidationError,
-    ValidationErrorResponse,
-    MAX_PAYLOAD_SIZE
+    payload_limit_config, sanitize_json_input, sanitize_request, validate_content_type,
+    validate_request, ApiValidationError, ValidationErrorResponse, MAX_PAYLOAD_SIZE,
 };
 
 /// Execute request body (JSON)
@@ -46,7 +38,7 @@ pub struct ExecuteRequest {
     pub metadata: HashMap<String, String>,
 }
 
- /// Execute response body (JSON) - Using the unified AgiResponse schema
+/// Execute response body (JSON) - Using the unified AgiResponse schema
 #[derive(Debug, Serialize)]
 pub struct ExecuteResponse {
     pub final_answer: String,
@@ -60,10 +52,7 @@ pub struct ExecuteResponse {
 fn is_plan_and_execute(request: &ExecuteRequest) -> bool {
     let method = request.method.to_ascii_lowercase();
 
-    let method_indicates_plan = matches!(
-        method.as_str(),
-        "plan_and_execute" | "orchestrated_chat"
-    );
+    let method_indicates_plan = matches!(method.as_str(), "plan_and_execute" | "orchestrated_chat");
 
     let metadata_indicates_plan = request
         .metadata
@@ -112,7 +101,7 @@ impl ApiGateway {
                     tracing::warn!("Secrets service running in mock mode");
                 }
                 Some(client)
-            },
+            }
             Err(err) => {
                 tracing::warn!("Failed to connect to secrets service: {}", err);
                 None
@@ -142,7 +131,12 @@ impl ApiGateway {
             .layer(middleware::from_fn(Self::validate_content_type_middleware))
             .layer(middleware::from_fn(Self::validate_request_middleware))
             .layer(payload_limit_config())
-            .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
+            .layer(
+                CorsLayer::new()
+                    .allow_origin(Any)
+                    .allow_methods(Any)
+                    .allow_headers(Any),
+            )
             .with_state(self)
     }
 
@@ -245,7 +239,10 @@ impl ApiGateway {
                     agi_core::orchestrator_service_client::OrchestratorServiceClient::new(channel);
 
                 if is_plan {
-                    match client.plan_and_execute(tonic::Request::new(proto_request)).await {
+                    match client
+                        .plan_and_execute(tonic::Request::new(proto_request))
+                        .await
+                    {
                         Ok(response) => {
                             let agi_response = response.into_inner();
 
@@ -262,17 +259,11 @@ impl ApiGateway {
                                 .into_response()
                         }
                         Err(e) => {
-                            tracing::error!(
-                                "Orchestrator PlanAndExecute gRPC error: {}",
-                                e
-                            );
+                            tracing::error!("Orchestrator PlanAndExecute gRPC error: {}", e);
                             (
                                 StatusCode::INTERNAL_SERVER_ERROR,
                                 Json(ErrorResponse {
-                                    error: format!(
-                                        "Orchestrator PlanAndExecute error: {}",
-                                        e
-                                    ),
+                                    error: format!("Orchestrator PlanAndExecute error: {}", e),
                                     code: 500,
                                 }),
                             )
@@ -280,7 +271,10 @@ impl ApiGateway {
                         }
                     }
                 } else {
-                    match client.process_request(tonic::Request::new(proto_request)).await {
+                    match client
+                        .process_request(tonic::Request::new(proto_request))
+                        .await
+                    {
                         Ok(response) => {
                             let agi_response = response.into_inner();
 
@@ -326,135 +320,137 @@ impl ApiGateway {
 
     async fn generate_token_handler(headers: HeaderMap) -> impl IntoResponse {
         match auth_middleware::generate_client_token().await {
-            Ok(token_data) => {
-                Json(serde_json::json!({
-                    "token": token_data.token,
-                    "expires_at": token_data.expires_at,
-                    "roles": token_data.roles,
-                    "permissions": token_data.permissions,
-                })).into_response()
-            }
-            Err(err) => {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse {
-                        error: format!("Failed to generate token: {}", err),
-                        code: 500,
-                    }),
-                ).into_response()
-            }
+            Ok(token_data) => Json(serde_json::json!({
+                "token": token_data.token,
+                "expires_at": token_data.expires_at,
+                "roles": token_data.roles,
+                "permissions": token_data.permissions,
+            }))
+            .into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("Failed to generate token: {}", err),
+                    code: 500,
+                }),
+            )
+                .into_response(),
         }
     }
 
-        // Middleware implementations moved from main.rs
-        async fn validate_content_type_middleware(
-            req: axum::http::Request<Body>,
-            next: Next,
-        ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
-            let path = req.uri().path().to_string();
-    
-            if !path.starts_with("/api/v1/") {
-                return Ok(next.run(req).await);
-            }
-    
-            let required_content_type = match path.as_str() {
-                "/api/v1/execute" => "application/json",
-                _ => return Ok(next.run(req).await),
-            };
-    
-            if let Err(err) = validate_content_type(req.headers(), required_content_type) {
-                let (status, response) = err.to_response();
-                return Err((status, response));
-            }
-    
-            Ok(next.run(req).await)
+    // Middleware implementations moved from main.rs
+    async fn validate_content_type_middleware(
+        req: axum::http::Request<Body>,
+        next: Next,
+    ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
+        let path = req.uri().path().to_string();
+
+        if !path.starts_with("/api/v1/") {
+            return Ok(next.run(req).await);
         }
-    
-        async fn validate_request_middleware(
-            req: axum::http::Request<Body>,
-            next: Next,
-        ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
-            // Implementation moved from main.rs
-            let (parts, body) = req.into_parts();
-            let uri = parts.uri.clone();
-            let method = parts.method.clone();
-            let headers = parts.headers.clone();
-    
-            let path = uri.path().to_string();
-    
-            if !path.starts_with("/api/v1/") || method != axum::http::Method::POST {
-                let req = axum::http::Request::from_parts(parts, body);
-                return Ok(next.run(req).await);
+
+        let required_content_type = match path.as_str() {
+            "/api/v1/execute" => "application/json",
+            _ => return Ok(next.run(req).await),
+        };
+
+        if let Err(err) = validate_content_type(req.headers(), required_content_type) {
+            let (status, response) = err.to_response();
+            return Err((status, response));
+        }
+
+        Ok(next.run(req).await)
+    }
+
+    async fn validate_request_middleware(
+        req: axum::http::Request<Body>,
+        next: Next,
+    ) -> Result<Response, (StatusCode, Json<ValidationErrorResponse>)> {
+        // Implementation moved from main.rs
+        let (parts, body) = req.into_parts();
+        let uri = parts.uri.clone();
+        let method = parts.method.clone();
+        let headers = parts.headers.clone();
+
+        let path = uri.path().to_string();
+
+        if !path.starts_with("/api/v1/") || method != axum::http::Method::POST {
+            let req = axum::http::Request::from_parts(parts, body);
+            return Ok(next.run(req).await);
+        }
+
+        if path == "/api/v1/token" || path == "/api/v1/health" {
+            let req = axum::http::Request::from_parts(parts, body);
+            return Ok(next.run(req).await);
+        }
+
+        let body_bytes = match to_bytes(body, MAX_PAYLOAD_SIZE).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                let error = ApiValidationError::InvalidFormat(format!(
+                    "Failed to read request body: {}",
+                    e
+                ));
+                return Err(error.to_response());
             }
-    
-            if path == "/api/v1/token" || path == "/api/v1/health" {
-                let req = axum::http::Request::from_parts(parts, body);
-                return Ok(next.run(req).await);
-            }
-    
-            let body_bytes = match to_bytes(body, MAX_PAYLOAD_SIZE).await {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    let error = ApiValidationError::InvalidFormat(
-                        format!("Failed to read request body: {}", e)
-                    );
-                    return Err(error.to_response());
-                }
-            };
-    
-            if body_bytes.len() > MAX_PAYLOAD_SIZE {
-                let error = ApiValidationError::PayloadTooLarge(
-                    format!("Request size {} exceeds maximum allowed size {}", body_bytes.len(), MAX_PAYLOAD_SIZE)
+        };
+
+        if body_bytes.len() > MAX_PAYLOAD_SIZE {
+            let error = ApiValidationError::PayloadTooLarge(format!(
+                "Request size {} exceeds maximum allowed size {}",
+                body_bytes.len(),
+                MAX_PAYLOAD_SIZE
+            ));
+            return Err(error.to_response());
+        }
+
+        let body_str = match std::str::from_utf8(&body_bytes) {
+            Ok(s) => s,
+            Err(_) => {
+                let error = ApiValidationError::InvalidFormat(
+                    "Request body is not valid UTF-8".to_string(),
                 );
                 return Err(error.to_response());
             }
-    
-            let body_str = match std::str::from_utf8(&body_bytes) {
-                Ok(s) => s,
-                Err(_) => {
-                    let error = ApiValidationError::InvalidFormat("Request body is not valid UTF-8".to_string());
-                    return Err(error.to_response());
-                }
-            };
-    
-            let sanitized_result = sanitize_json_input(body_str);
-            if let Err(err) = sanitized_result {
-                return Err(err.to_response());
-            }
-    
-            let mut json_value = sanitized_result.unwrap();
-    
-            if let Err(err) = validate_request(&path, &json_value) {
-                return Err(err.to_response());
-            }
-    
-            sanitize_request(&path, &mut json_value);
-    
-            let sanitized_body = match serde_json::to_string(&json_value) {
-                Ok(body) => body,
-                Err(err) => {
-                    let error = ApiValidationError::InvalidFormat(
-                        format!("Failed to serialize sanitized request: {}", err)
-                    );
-                    return Err(error.to_response());
-                }
-            };
-    
-            let req_builder = axum::http::Request::builder()
-                .uri(uri)
-                .method(method);
-    
-            let req_builder = headers.iter().fold(req_builder, |builder, (name, value)| {
-                builder.header(name, value)
-            });
-    
-            let request = req_builder
-                .header(CONTENT_TYPE, "application/json")
-                .body(Body::from(sanitized_body))
-                .unwrap();
-    
-            Ok(next.run(request).await)
+        };
+
+        let sanitized_result = sanitize_json_input(body_str);
+        if let Err(err) = sanitized_result {
+            return Err(err.to_response());
         }
+
+        let mut json_value = sanitized_result.unwrap();
+
+        if let Err(err) = validate_request(&path, &json_value) {
+            return Err(err.to_response());
+        }
+
+        sanitize_request(&path, &mut json_value);
+
+        let sanitized_body = match serde_json::to_string(&json_value) {
+            Ok(body) => body,
+            Err(err) => {
+                let error = ApiValidationError::InvalidFormat(format!(
+                    "Failed to serialize sanitized request: {}",
+                    err
+                ));
+                return Err(error.to_response());
+            }
+        };
+
+        let req_builder = axum::http::Request::builder().uri(uri).method(method);
+
+        let req_builder = headers.iter().fold(req_builder, |builder, (name, value)| {
+            builder.header(name, value)
+        });
+
+        let request = req_builder
+            .header(CONTENT_TYPE, "application/json")
+            .body(Body::from(sanitized_body))
+            .unwrap();
+
+        Ok(next.run(request).await)
+    }
 }
 
 // Re-export proto types

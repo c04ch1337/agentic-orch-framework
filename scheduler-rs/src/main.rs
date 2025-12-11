@@ -2,17 +2,17 @@
 // Task Scheduler Service - CRON-based task scheduling
 // Port 50066
 
-use tonic::{transport::Server, Request, Response, Status};
-use std::sync::Arc;
-use std::time::Instant;
-use std::net::SocketAddr;
-use std::env;
-use std::collections::HashMap;
-use once_cell::sync::Lazy;
-use tokio::sync::RwLock;
 use chrono::{DateTime, Utc};
 use cron::Schedule;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
+use std::env;
+use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::RwLock;
+use tonic::{transport::Server, Request, Response, Status};
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
@@ -21,17 +21,10 @@ pub mod agi_core {
 }
 
 use agi_core::{
-    scheduler_service_server::{SchedulerService, SchedulerServiceServer},
     health_service_server::{HealthService, HealthServiceServer},
-    ScheduleTaskRequest,
-    ScheduleTaskResponse,
-    ListTasksRequest,
-    ListTasksResponse,
-    ScheduledTask,
-    CancelTaskRequest,
-    CancelTaskResponse,
-    HealthRequest,
-    HealthResponse,
+    scheduler_service_server::{SchedulerService, SchedulerServiceServer},
+    CancelTaskRequest, CancelTaskResponse, HealthRequest, HealthResponse, ListTasksRequest,
+    ListTasksResponse, ScheduleTaskRequest, ScheduleTaskResponse, ScheduledTask,
 };
 
 /// Internal task representation
@@ -64,9 +57,9 @@ impl Default for SchedulerServer {
 impl SchedulerServer {
     /// Calculate next run time from cron expression
     fn calculate_next_run(cron_expr: &str) -> Result<DateTime<Utc>, String> {
-        let schedule = Schedule::from_str(cron_expr)
-            .map_err(|e| format!("Invalid cron expression: {}", e))?;
-        
+        let schedule =
+            Schedule::from_str(cron_expr).map_err(|e| format!("Invalid cron expression: {}", e))?;
+
         schedule
             .upcoming(Utc)
             .next()
@@ -81,9 +74,13 @@ impl SchedulerService for SchedulerServer {
         request: Request<ScheduleTaskRequest>,
     ) -> Result<Response<ScheduleTaskResponse>, Status> {
         let req = request.into_inner();
-        
-        log::info!("ScheduleTask: name='{}', cron='{}'", req.task_name, req.cron_expression);
-        
+
+        log::info!(
+            "ScheduleTask: name='{}', cron='{}'",
+            req.task_name,
+            req.cron_expression
+        );
+
         // Validate cron expression
         let next_run = match Self::calculate_next_run(&req.cron_expression) {
             Ok(time) => time,
@@ -96,16 +93,18 @@ impl SchedulerService for SchedulerServer {
                 }));
             }
         };
-        
+
         // Generate task ID if not provided
         let task_id = if req.task_id.is_empty() {
             uuid::Uuid::new_v4().to_string()
         } else {
             req.task_id.clone()
         };
-        
+
         // Set priority based on source service
-        let priority = if req.metadata.get("source_service").map(|s| s.as_str()) == Some("curiosity-engine-rs") {
+        let priority = if req.metadata.get("source_service").map(|s| s.as_str())
+            == Some("curiosity-engine-rs")
+        {
             log::info!("Setting HIGH priority (8) for Curiosity Engine task");
             8
         } else {
@@ -127,12 +126,16 @@ impl SchedulerService for SchedulerServer {
                 meta
             },
         };
-        
+
         let mut tasks = self.tasks.write().await;
         tasks.insert(task_id.clone(), entry);
-        
-        log::info!("Task scheduled: id={}, next_run={}", task_id, next_run.to_rfc3339());
-        
+
+        log::info!(
+            "Task scheduled: id={}, next_run={}",
+            task_id,
+            next_run.to_rfc3339()
+        );
+
         Ok(Response::new(ScheduleTaskResponse {
             success: true,
             scheduled_id: task_id,
@@ -140,14 +143,14 @@ impl SchedulerService for SchedulerServer {
             error: String::new(),
         }))
     }
-    
+
     async fn list_tasks(
         &self,
         request: Request<ListTasksRequest>,
     ) -> Result<Response<ListTasksResponse>, Status> {
         let req = request.into_inner();
         let tasks = self.tasks.read().await;
-        
+
         let mut result: Vec<ScheduledTask> = tasks
             .values()
             .filter(|t| {
@@ -163,33 +166,36 @@ impl SchedulerService for SchedulerServer {
                 cron_expression: t.cron_expression.clone(),
                 status: t.status.clone(),
                 next_run_time: t.next_run_time.to_rfc3339(),
-                last_run_time: t.last_run_time.map(|dt| dt.to_rfc3339()).unwrap_or_default(),
+                last_run_time: t
+                    .last_run_time
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default(),
                 run_count: t.run_count,
             })
             .collect();
-        
+
         if req.limit > 0 {
             result.truncate(req.limit as usize);
         }
-        
+
         let total = result.len() as i32;
-        
+
         Ok(Response::new(ListTasksResponse {
             tasks: result,
             total_count: total,
         }))
     }
-    
+
     async fn cancel_task(
         &self,
         request: Request<CancelTaskRequest>,
     ) -> Result<Response<CancelTaskResponse>, Status> {
         let req = request.into_inner();
-        
+
         log::info!("CancelTask: id='{}'", req.task_id);
-        
+
         let mut tasks = self.tasks.write().await;
-        
+
         if let Some(task) = tasks.get_mut(&req.task_id) {
             task.status = "CANCELLED".to_string();
             log::info!("Task cancelled: {}", req.task_id);
@@ -208,15 +214,18 @@ impl SchedulerService for SchedulerServer {
 
 #[tonic::async_trait]
 impl HealthService for SchedulerServer {
-    async fn get_health(&self, _request: Request<HealthRequest>) -> Result<Response<HealthResponse>, Status> {
+    async fn get_health(
+        &self,
+        _request: Request<HealthRequest>,
+    ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let tasks = self.tasks.read().await;
         let active_count = tasks.values().filter(|t| t.status == "ACTIVE").count();
-        
+
         let mut dependencies = HashMap::new();
         dependencies.insert("scheduler_engine".to_string(), "ACTIVE".to_string());
         dependencies.insert("active_tasks".to_string(), active_count.to_string());
-        
+
         Ok(Response::new(HealthResponse {
             healthy: true,
             service_name: "scheduler-service".to_string(),
@@ -231,11 +240,14 @@ impl HealthService for SchedulerServer {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let addr_str = env::var("SCHEDULER_SERVICE_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:50066".to_string());
-    
+    let addr_str =
+        env::var("SCHEDULER_SERVICE_ADDR").unwrap_or_else(|_| "0.0.0.0:50066".to_string());
+
     let addr: SocketAddr = if addr_str.starts_with("http://") {
-        addr_str.strip_prefix("http://").unwrap_or(&addr_str).parse()?
+        addr_str
+            .strip_prefix("http://")
+            .unwrap_or(&addr_str)
+            .parse()?
     } else {
         addr_str.parse()?
     };

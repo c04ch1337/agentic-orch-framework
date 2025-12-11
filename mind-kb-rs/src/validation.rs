@@ -2,19 +2,17 @@
 // Input validation for Mind KB Service
 
 use input_validation_rs::{
+    sanitizers::{JsonSanitizer, StringSanitizer},
     validate,
     validators::{
+        numeric::NumericValidation, path::PathValidation, security::SecurityValidation,
         string::StringValidation,
-        numeric::NumericValidation,
-        path::PathValidation,
-        security::SecurityValidation,
     },
-    sanitizers::{StringSanitizer, JsonSanitizer},
     ValidationResult,
 };
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
-use serde_json::{Value as JsonValue, json};
 
 // Maximum allowed sizes
 const MAX_QUERY_LENGTH: usize = 4096; // 4KB query text
@@ -51,8 +49,11 @@ pub fn validate_query(query: &str, limit: u64) -> ValidationResult<()> {
 pub fn validate_embedding(embedding: &[f32]) -> ValidationResult<()> {
     // Check embedding dimension
     if embedding.len() != VALID_EMBEDDING_DIMENSION {
-        return Err(format!("Invalid embedding dimension: expected {}, got {}", 
-            VALID_EMBEDDING_DIMENSION, embedding.len()));
+        return Err(format!(
+            "Invalid embedding dimension: expected {}, got {}",
+            VALID_EMBEDDING_DIMENSION,
+            embedding.len()
+        ));
     }
 
     // Check for NaN values
@@ -63,24 +64,32 @@ pub fn validate_embedding(embedding: &[f32]) -> ValidationResult<()> {
     // Check if embedding is normalized (approximately 1.0 length)
     let squared_sum: f32 = embedding.iter().map(|val| val * val).sum();
     let magnitude = squared_sum.sqrt();
-    
+
     if (magnitude - 1.0).abs() > 0.01 {
-        return Err(format!("Embedding is not properly normalized, magnitude: {}", magnitude));
+        return Err(format!(
+            "Embedding is not properly normalized, magnitude: {}",
+            magnitude
+        ));
     }
 
     Ok(())
 }
 
 /// Validates and sanitizes metadata
-pub fn validate_metadata(metadata: &HashMap<String, String>) -> ValidationResult<HashMap<String, String>> {
+pub fn validate_metadata(
+    metadata: &HashMap<String, String>,
+) -> ValidationResult<HashMap<String, String>> {
     let mut sanitized_metadata = HashMap::new();
-    
+
     // Check number of entries
     if metadata.len() > MAX_METADATA_ENTRIES {
-        return Err(format!("Too many metadata entries: {}, max allowed: {}", 
-            metadata.len(), MAX_METADATA_ENTRIES));
+        return Err(format!(
+            "Too many metadata entries: {}, max allowed: {}",
+            metadata.len(),
+            MAX_METADATA_ENTRIES
+        ));
     }
-    
+
     // Validate each key-value pair
     for (key, value) in metadata {
         // Validate key
@@ -91,7 +100,7 @@ pub fn validate_metadata(metadata: &HashMap<String, String>) -> ValidationResult
             StringValidation::alphanumeric_with_underscore(),
             SecurityValidation::no_path_traversal()
         )?;
-        
+
         // Validate value
         validate!(
             value,
@@ -99,14 +108,14 @@ pub fn validate_metadata(metadata: &HashMap<String, String>) -> ValidationResult
             SecurityValidation::no_code_injection(),
             SecurityValidation::no_command_injection()
         )?;
-        
+
         // Sanitize and store
         let sanitized_key = StringSanitizer::sanitize_identifier(key);
         let sanitized_value = StringSanitizer::sanitize(value);
-        
+
         sanitized_metadata.insert(sanitized_key, sanitized_value);
     }
-    
+
     Ok(sanitized_metadata)
 }
 
@@ -120,10 +129,10 @@ pub fn validate_content(content: &str) -> ValidationResult<String> {
         SecurityValidation::no_code_injection(),
         SecurityValidation::no_command_injection()
     )?;
-    
+
     // Sanitize the content
     let sanitized = StringSanitizer::sanitize(content);
-    
+
     Ok(sanitized)
 }
 
@@ -136,7 +145,11 @@ struct StoreRequestSchema {
 }
 
 /// Validates a store request against schema
-pub fn validate_store_request(key: &str, value: &[u8], metadata: &HashMap<String, String>) -> ValidationResult<()> {
+pub fn validate_store_request(
+    key: &str,
+    value: &[u8],
+    metadata: &HashMap<String, String>,
+) -> ValidationResult<()> {
     // Validate key
     validate!(
         key,
@@ -145,26 +158,29 @@ pub fn validate_store_request(key: &str, value: &[u8], metadata: &HashMap<String
         StringValidation::alphanumeric_with_underscore_and_dots(),
         SecurityValidation::no_path_traversal()
     )?;
-    
+
     // Validate value
     if value.is_empty() {
         return Err("Value cannot be empty".to_string());
     }
-    
+
     if value.len() > MAX_CONTENT_LENGTH {
-        return Err(format!("Value too large: {} bytes, max allowed: {} bytes", 
-            value.len(), MAX_CONTENT_LENGTH));
+        return Err(format!(
+            "Value too large: {} bytes, max allowed: {} bytes",
+            value.len(),
+            MAX_CONTENT_LENGTH
+        ));
     }
-    
+
     // Ensure value is valid UTF-8
     match std::str::from_utf8(value) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => return Err(format!("Value is not valid UTF-8: {}", e)),
     }
-    
+
     // Validate metadata
     validate_metadata(metadata)?;
-    
+
     Ok(())
 }
 

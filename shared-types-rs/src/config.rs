@@ -15,16 +15,16 @@ static PHOENIX_CONFIG: OnceCell<Arc<PhoenixConfig>> = OnceCell::new();
 pub enum ConfigError {
     #[error("Configuration file not found: {0}")]
     FileNotFound(String),
-    
+
     #[error("Failed to parse configuration: {0}")]
     ParseError(String),
-    
+
     #[error("Configuration not initialized")]
     NotInitialized,
-    
+
     #[error("Invalid configuration value: {0}")]
     InvalidValue(String),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
 }
@@ -293,37 +293,39 @@ impl PhoenixConfig {
         if let Some(config) = PHOENIX_CONFIG.get() {
             return Ok(Arc::clone(config));
         }
-        
+
         // Get config file path from environment or use default
-        let config_path = env::var("PHOENIX_CONFIG_PATH")
-            .unwrap_or_else(|_| "./config/phoenix.toml".to_string());
-        
+        let config_path =
+            env::var("PHOENIX_CONFIG_PATH").unwrap_or_else(|_| "./config/phoenix.toml".to_string());
+
         let path = PathBuf::from(&config_path);
-        
+
         if !path.exists() {
             return Err(ConfigError::FileNotFound(config_path));
         }
-        
+
         // Read and parse config file
         let contents = fs::read_to_string(&path)?;
-        let config: PhoenixConfig = toml::from_str(&contents)
-            .map_err(|e| ConfigError::ParseError(e.to_string()))?;
-        
+        let config: PhoenixConfig =
+            toml::from_str(&contents).map_err(|e| ConfigError::ParseError(e.to_string()))?;
+
         // Store in global static
         let config_arc = Arc::new(config);
-        PHOENIX_CONFIG.set(Arc::clone(&config_arc))
+        PHOENIX_CONFIG
+            .set(Arc::clone(&config_arc))
             .map_err(|_| ConfigError::InvalidValue("Config already initialized".to_string()))?;
-        
+
         Ok(config_arc)
     }
-    
+
     /// Get the global configuration instance
     pub fn get() -> Result<Arc<PhoenixConfig>, ConfigError> {
-        PHOENIX_CONFIG.get()
+        PHOENIX_CONFIG
+            .get()
             .map(Arc::clone)
             .ok_or(ConfigError::NotInitialized)
     }
-    
+
     /// Get service address for a given service
     pub fn get_service_address(&self, service_name: &str) -> String {
         let port = match service_name.to_lowercase().as_str() {
@@ -352,14 +354,13 @@ impl PhoenixConfig {
             "api_gateway" => self.services.api_gateway,
             _ => 50100, // Default port for unknown services
         };
-        
+
         // Check for environment variable override
         let env_var = format!("{}_SERVICE_ADDR", service_name.to_uppercase());
-        env::var(&env_var).unwrap_or_else(|_| {
-            format!("http://{}:{}", self.system.service_host, port)
-        })
+        env::var(&env_var)
+            .unwrap_or_else(|_| format!("http://{}:{}", self.system.service_host, port))
     }
-    
+
     /// Get bind address for a service
     pub fn get_bind_address(&self, service_name: &str) -> String {
         let port = match service_name.to_lowercase().as_str() {
@@ -388,7 +389,7 @@ impl PhoenixConfig {
             "api_gateway" => self.services.api_gateway,
             _ => 50100,
         };
-        
+
         format!("0.0.0.0:{}", port)
     }
 }
@@ -396,7 +397,7 @@ impl PhoenixConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_config_loading() {
         // This test requires the phoenix.toml file to exist

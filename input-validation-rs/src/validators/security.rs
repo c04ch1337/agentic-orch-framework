@@ -3,10 +3,10 @@
 //! This module provides validators focused on security concerns,
 //! helping to protect against common attack vectors.
 
-use crate::errors::{ValidationError, ValidationResult};
-use regex::Regex;
-use lazy_static::lazy_static;
 use super::utils::get_regex;
+use crate::errors::{ValidationError, ValidationResult};
+use lazy_static::lazy_static;
+use regex::Regex;
 
 lazy_static! {
     // SQL Injection patterns
@@ -331,16 +331,16 @@ pub fn security_scan(input: &str) -> ValidationResult<()> {
         &no_format_string_vulnerabilities,
         &no_data_exfiltration,
     ];
-    
+
     let mut errors = Vec::new();
-    
+
     // Run all validators and collect errors
     for validator in validators {
         if let Err(err) = validator(input) {
             errors.push(err);
         }
     }
-    
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -363,16 +363,16 @@ pub fn default_security_scan(input: &str) -> ValidationResult<()> {
         &no_prototype_pollution,
         &no_format_string_vulnerabilities,
     ];
-    
+
     let mut errors = Vec::new();
-    
+
     // Run all validators and collect errors
     for validator in validators {
         if let Err(err) = validator(input) {
             errors.push(err);
         }
     }
-    
+
     if errors.is_empty() {
         Ok(())
     } else {
@@ -415,7 +415,7 @@ mod tests {
         assert!(no_path_traversal("..\\..\\Windows\\system32").is_err());
         assert!(no_path_traversal("/etc/passwd").is_err());
     }
-    
+
     #[test]
     fn test_security_scan() {
         assert!(security_scan("Hello, this is a normal message!").is_ok());

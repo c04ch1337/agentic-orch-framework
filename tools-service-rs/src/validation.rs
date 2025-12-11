@@ -5,10 +5,10 @@
 //! command injection and other security issues.
 
 use input_validation_rs::prelude::*;
-use input_validation_rs::validators;
 use input_validation_rs::sanitizers;
-use std::collections::{HashMap, HashSet};
+use input_validation_rs::validators;
 use once_cell::sync::Lazy;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 /// Maximum argument length for any command
@@ -84,22 +84,22 @@ static DEFAULT_DENIED_COMMANDS: Lazy<HashSet<&'static str>> = Lazy::new(|| {
 pub enum ToolValidationError {
     #[error("Command not allowed: {0}")]
     CommandNotAllowed(String),
-    
+
     #[error("Argument not allowed: {0}")]
     ArgumentNotAllowed(String),
-    
+
     #[error("Too many arguments: {0} (maximum {1})")]
     TooManyArguments(usize, usize),
-    
+
     #[error("Argument too long: {0} characters (maximum {1})")]
     ArgumentTooLong(usize, usize),
-    
+
     #[error("Invalid input type: {0}")]
     InvalidInputType(String),
-    
+
     #[error("Security threat detected: {0}")]
     SecurityThreat(String),
-    
+
     #[error("Validation error: {0}")]
     Other(String),
 }
@@ -125,7 +125,8 @@ pub fn validate_command_name(
     let denied_list = denied.unwrap_or(&DEFAULT_DENIED_COMMANDS);
     if denied_list.contains(cmd) {
         return Err(ToolValidationError::CommandNotAllowed(format!(
-            "Command '{}' is explicitly denied", cmd
+            "Command '{}' is explicitly denied",
+            cmd
         )));
     }
 
@@ -133,7 +134,8 @@ pub fn validate_command_name(
     if let Some(allowed_list) = allowed {
         if !allowed_list.contains(cmd) {
             return Err(ToolValidationError::CommandNotAllowed(format!(
-                "Command '{}' is not in the allowed list", cmd
+                "Command '{}' is not in the allowed list",
+                cmd
             )));
         }
     }
@@ -142,7 +144,8 @@ pub fn validate_command_name(
     match validators::security::default_security_scan(cmd) {
         Ok(_) => Ok(()),
         Err(e) => Err(ToolValidationError::SecurityThreat(format!(
-            "Command contains potential security threat: {}", e
+            "Command contains potential security threat: {}",
+            e
         ))),
     }
 }
@@ -170,15 +173,22 @@ pub fn validate_command_args(args: &[String]) -> Result<(), ToolValidationError>
         // Check for security threats in argument
         if let Err(e) = validators::security::default_security_scan(arg) {
             return Err(ToolValidationError::SecurityThreat(format!(
-                "Argument {} contains potential security threat: {}", idx, e
+                "Argument {} contains potential security threat: {}",
+                idx, e
             )));
         }
 
         // Check for command injection attempts
-        if arg.contains(';') || arg.contains('|') || arg.contains('&') || 
-           arg.contains('`') || arg.contains('$') || arg.contains('(') {
+        if arg.contains(';')
+            || arg.contains('|')
+            || arg.contains('&')
+            || arg.contains('`')
+            || arg.contains('$')
+            || arg.contains('(')
+        {
             return Err(ToolValidationError::ArgumentNotAllowed(format!(
-                "Argument {} contains command chaining characters", idx
+                "Argument {} contains command chaining characters",
+                idx
             )));
         }
     }
@@ -204,7 +214,8 @@ pub fn validate_input_type(input_type: &str) -> Result<(), ToolValidationError> 
     match input_type {
         "keyboard" | "mouse" | "touch" | "gamepad" | "network" => Ok(()),
         _ => Err(ToolValidationError::InvalidInputType(format!(
-            "Unrecognized input type: {}", input_type
+            "Unrecognized input type: {}",
+            input_type
         ))),
     }
 }
@@ -220,25 +231,22 @@ pub fn validate_input_params(
             // Required parameters for keyboard input
             if !params.contains_key("key") {
                 return Err(ToolValidationError::Other(
-                    "Keyboard input requires 'key' parameter".to_string()
+                    "Keyboard input requires 'key' parameter".to_string(),
                 ));
             }
 
             // Validate key parameter
             if let Some(key) = params.get("key") {
                 if key.len() > 50 {
-                    return Err(ToolValidationError::ArgumentTooLong(
-                        key.len(),
-                        50
-                    ));
+                    return Err(ToolValidationError::ArgumentTooLong(key.len(), 50));
                 }
             }
-        },
+        }
         "mouse" => {
             // Required parameters for mouse input
             if !params.contains_key("x") || !params.contains_key("y") {
                 return Err(ToolValidationError::Other(
-                    "Mouse input requires 'x' and 'y' parameters".to_string()
+                    "Mouse input requires 'x' and 'y' parameters".to_string(),
                 ));
             }
 
@@ -246,7 +254,7 @@ pub fn validate_input_params(
             if let Some(x) = params.get("x") {
                 if let Err(_) = x.parse::<i32>() {
                     return Err(ToolValidationError::Other(
-                        "Mouse 'x' parameter must be a number".to_string()
+                        "Mouse 'x' parameter must be a number".to_string(),
                     ));
                 }
             }
@@ -254,11 +262,11 @@ pub fn validate_input_params(
             if let Some(y) = params.get("y") {
                 if let Err(_) = y.parse::<i32>() {
                     return Err(ToolValidationError::Other(
-                        "Mouse 'y' parameter must be a number".to_string()
+                        "Mouse 'y' parameter must be a number".to_string(),
                     ));
                 }
             }
-        },
+        }
         // Add validation for other input types as needed
         _ => {}
     }
@@ -266,17 +274,22 @@ pub fn validate_input_params(
     // Check all parameters for security issues
     for (key, value) in params {
         // Validate the parameter name
-        if let Err(e) = validators::string::allowed_chars(key, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-") {
-            return Err(ToolValidationError::ArgumentNotAllowed(
-                format!("Parameter name contains invalid characters: {}", key)
-            ));
+        if let Err(e) = validators::string::allowed_chars(
+            key,
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-",
+        ) {
+            return Err(ToolValidationError::ArgumentNotAllowed(format!(
+                "Parameter name contains invalid characters: {}",
+                key
+            )));
         }
 
         // Validate the parameter value
         if let Err(e) = validators::security::default_security_scan(value) {
-            return Err(ToolValidationError::SecurityThreat(
-                format!("Parameter '{}' contains potential security threat: {}", key, e)
-            ));
+            return Err(ToolValidationError::SecurityThreat(format!(
+                "Parameter '{}' contains potential security threat: {}",
+                key, e
+            )));
         }
     }
 
@@ -284,16 +297,13 @@ pub fn validate_input_params(
 }
 
 /// Comprehensive validation of command execution request
-pub fn validate_command_execution(
-    cmd: &str,
-    args: &[String],
-) -> Result<(), ToolValidationError> {
+pub fn validate_command_execution(cmd: &str, args: &[String]) -> Result<(), ToolValidationError> {
     // First, validate the command name
     validate_command_name(cmd, None, None)?;
-    
+
     // Then validate arguments
     validate_command_args(args)?;
-    
+
     Ok(())
 }
 
@@ -304,86 +314,86 @@ pub fn validate_input_simulation(
 ) -> Result<(), ToolValidationError> {
     // Validate input type
     validate_input_type(input_type)?;
-    
+
     // Validate parameters
     validate_input_params(params, input_type)?;
-    
+
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_validate_command_name() {
         // Test allowed command
         assert!(validate_command_name("ls", None, None).is_ok());
-        
+
         // Test denied command
         assert!(validate_command_name("rm", None, None).is_err());
-        
+
         // Test command with security issue
         assert!(validate_command_name("ls;rm -rf /", None, None).is_err());
     }
-    
+
     #[test]
     fn test_validate_command_args() {
         // Test valid arguments
         let args = vec!["file.txt".to_string(), "-l".to_string()];
         assert!(validate_command_args(&args).is_ok());
-        
+
         // Test argument with command injection
         let args = vec!["file.txt;rm -rf /".to_string()];
         assert!(validate_command_args(&args).is_err());
-        
+
         // Test too many arguments
         let too_many_args = (0..MAX_ARGS_COUNT + 1)
             .map(|i| format!("arg{}", i))
             .collect::<Vec<String>>();
         assert!(validate_command_args(&too_many_args).is_err());
     }
-    
+
     #[test]
     fn test_sanitize_command() {
         // Test sanitizing command with potential injection
         let cmd = "ls -la; rm -rf /";
         let sanitized = sanitize_command(cmd);
         assert!(!sanitized.contains(';'));
-        
+
         // Test simple command
         let cmd = "ls -la";
         let sanitized = sanitize_command(cmd);
         assert_eq!(sanitized, cmd);
     }
-    
+
     #[test]
     fn test_validate_input_type() {
         // Test valid input types
         assert!(validate_input_type("keyboard").is_ok());
         assert!(validate_input_type("mouse").is_ok());
-        
+
         // Test invalid input type
         assert!(validate_input_type("unknown").is_err());
     }
-    
+
     #[test]
     fn test_validate_input_params() {
         // Test valid keyboard parameters
         let mut params = HashMap::new();
         params.insert("key".to_string(), "Enter".to_string());
         assert!(validate_input_params(&params, "keyboard").is_ok());
-        
+
         // Test missing required parameter
         let empty_params = HashMap::new();
         assert!(validate_input_params(&empty_params, "keyboard").is_err());
-        
+
         // Test valid mouse parameters
         let mut mouse_params = HashMap::new();
         mouse_params.insert("x".to_string(), "100".to_string());
         mouse_params.insert("y".to_string(), "200".to_string());
         assert!(validate_input_params(&mouse_params, "mouse").is_ok());
-        
+
         // Test invalid mouse parameter (non-numeric)
         let mut invalid_mouse_params = HashMap::new();
         invalid_mouse_params.insert("x".to_string(), "abc".to_string());

@@ -15,3 +15,6 @@ whatlang = "0.16"
 error-handling-rs = { path = "../error-handling-rs" }
 metrics = "0.20"
 config-rs = { path = "../config-rs" }
+
+[build-dependencies]
+tonic-prost-build = "0.14.2"

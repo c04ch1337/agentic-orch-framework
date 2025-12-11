@@ -7,13 +7,13 @@ mod tests {
     pub mod registry_integration_tests;
 }
 
+use config_rs;
+use once_cell::sync::Lazy;
+use prost::Message;
 use std::sync::Arc;
 use std::time::Instant;
-use tonic::{transport::Server, Request, Response, Status};
 use tokio::sync::Mutex;
-use prost::Message;
-use once_cell::sync::Lazy;
-use config_rs;
+use tonic::{Request, Response, Status, transport::Server};
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -26,32 +26,32 @@ pub mod agi_core {
 
 // 2. Import the required components from the generated code
 use agi_core::{
-    orchestrator_service_server::{OrchestratorService, OrchestratorServiceServer},
-    health_service_server::{HealthService, HealthServiceServer},
-    data_router_service_client::DataRouterServiceClient,
-    reflection_service_client::ReflectionServiceClient,
-    agent_registry_service_client::AgentRegistryServiceClient,
-    context_manager_service_client::ContextManagerServiceClient,
-    Request as ProtoRequest,
-    Response as ProtoResponse,
-    AgiResponse,  // Added for unified response format
-    RouteRequest,
-    RouteResponse,
+    AgiResponse, // Added for unified response format
+    ContextRequest,
+    EthicsCheckRequest,
+    EthicsCheckResponse,
     GenerateRequest,
-    ValidationRequest,
-    ValidationResponse,
-    ReflectionRequest,
     GetAgentRequest,
     HealthRequest,
     HealthResponse,
-    EthicsCheckRequest,
-    EthicsCheckResponse,
-    ContextRequest,
+    ReflectionRequest,
+    Request as ProtoRequest,
+    Response as ProtoResponse,
+    RouteRequest,
+    RouteResponse,
     ToolRequest,
     ToolResponse,
+    ValidationRequest,
+    ValidationResponse,
+    agent_registry_service_client::AgentRegistryServiceClient,
+    context_manager_service_client::ContextManagerServiceClient,
+    data_router_service_client::DataRouterServiceClient,
+    health_service_server::{HealthService, HealthServiceServer},
+    orchestrator_service_server::{OrchestratorService, OrchestratorServiceServer},
+    reflection_service_client::ReflectionServiceClient,
 };
 
- // 3. Orchestration planning and error types
+// 3. Orchestration planning and error types
 
 #[derive(Debug, serde::Deserialize)]
 struct Plan {
@@ -61,7 +61,7 @@ struct Plan {
 #[derive(Debug, serde::Deserialize)]
 struct PlanStep {
     id: String,
-    action: String,                 // "llm", "kb", "tools", "safety", "final"
+    action: String, // "llm", "kb", "tools", "safety", "final"
     description: String,
     #[serde(default)]
     target_service: Option<String>,
@@ -99,9 +99,7 @@ fn classify_status_error(
     let code = status.code();
     let retryable = matches!(
         code,
-        tonic::Code::Unavailable
-            | tonic::Code::DeadlineExceeded
-            | tonic::Code::ResourceExhausted
+        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded | tonic::Code::ResourceExhausted
     );
 
     OrchestrationError {
@@ -115,13 +113,13 @@ fn classify_status_error(
 
 #[derive(serde::Serialize)]
 struct CriticalFailureLog {
-    event_type: String,         // always "CRITICAL_FAILURE"
-    service: String,            // "orchestrator-service"
-    stage: String,              // e.g. "ToolsExecution"
+    event_type: String, // always "CRITICAL_FAILURE"
+    service: String,    // "orchestrator-service"
+    stage: String,      // e.g. "ToolsExecution"
     request_id: String,
     phoenix_session_id: String,
-    target_service: String,     // "tools-service", "llm-service", etc.
-    error_type: String,         // e.g. "DEADLINE_EXCEEDED"
+    target_service: String, // "tools-service", "llm-service", etc.
+    error_type: String,     // e.g. "DEADLINE_EXCEEDED"
     error_message: String,
     retryable: bool,
     tool_name: Option<String>,
@@ -175,7 +173,7 @@ Please try again later or simplify your request so that I can answer without run
             );
 
             let execution_plan = format!(
-"Execution Plan:
+                "Execution Plan:
 1. Enriched context via Context Manager.
 2. Planned steps with LLM via Data Router.
 3. Verified ethics via Soul-KB.
@@ -197,21 +195,17 @@ Error: {}",
         _ => {
             let final_answer = format!(
                 "I attempted to complete your request, but a downstream dependency failed during the {} stage while calling {}. Please try again later.",
-                stage_str,
-                err.target_service,
+                stage_str, err.target_service,
             );
 
             let execution_plan = format!(
-"Execution Plan:
+                "Execution Plan:
 1. Enriched context via Context Manager.
 2. Planned steps with LLM via Data Router.
 3. Verified ethics via Soul-KB.
 4. Validated request with Safety Service.
 5. Attempted execution [FAILED at stage {:?}, target: {}, error_type: {}, message: {}].",
-                err.stage,
-                err.target_service,
-                err.error_type,
-                err.error_message
+                err.stage, err.target_service, err.error_type, err.error_message
             );
 
             (final_answer, execution_plan, err.target_service.clone())
@@ -247,9 +241,11 @@ pub struct OrchestratorServer {
     // Client stub for communicating with Reflection Service
     reflection_client: Arc<Mutex<Option<ReflectionServiceClient<tonic::transport::Channel>>>>,
     // Client stub for Agent Registry Service
-    agent_registry_client: Arc<Mutex<Option<AgentRegistryServiceClient<tonic::transport::Channel>>>>,
+    agent_registry_client:
+        Arc<Mutex<Option<AgentRegistryServiceClient<tonic::transport::Channel>>>>,
     // Client stub for Context Manager Service
-    context_manager_client: Arc<Mutex<Option<ContextManagerServiceClient<tonic::transport::Channel>>>>,
+    context_manager_client:
+        Arc<Mutex<Option<ContextManagerServiceClient<tonic::transport::Channel>>>>,
 }
 
 // Import Log Analyzer client
@@ -302,7 +298,7 @@ impl OrchestratorServer {
         router_addr: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Connecting to Data Router Service at {}", router_addr);
-        
+
         let client = DataRouterServiceClient::connect(router_addr.clone())
             .await
             .map_err(|e| {
@@ -312,7 +308,7 @@ impl OrchestratorServer {
 
         let mut client_guard = self.data_router_client.lock().await;
         *client_guard = Some(client);
-        
+
         log::info!("Successfully connected to Data Router Service");
         Ok(())
     }
@@ -335,7 +331,7 @@ impl OrchestratorServer {
         reflection_addr: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Connecting to Reflection Service at {}", reflection_addr);
-        
+
         let client = ReflectionServiceClient::connect(reflection_addr.clone())
             .await
             .map_err(|e| {
@@ -345,7 +341,7 @@ impl OrchestratorServer {
 
         let mut client_guard = self.reflection_client.lock().await;
         *client_guard = Some(client);
-        
+
         log::info!("Successfully connected to Reflection Service");
         Ok(())
     }
@@ -364,7 +360,7 @@ impl OrchestratorServer {
         registry_addr: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Connecting to Agent Registry Service at {}", registry_addr);
-        
+
         let client = AgentRegistryServiceClient::connect(registry_addr.clone())
             .await
             .map_err(|e| {
@@ -374,7 +370,7 @@ impl OrchestratorServer {
 
         let mut client_guard = self.agent_registry_client.lock().await;
         *client_guard = Some(client);
-        
+
         log::info!("Successfully connected to Agent Registry Service");
         Ok(())
     }
@@ -389,45 +385,52 @@ impl OrchestratorServer {
 
     /// Find an agent by capability for task delegation
     /// Returns AgentInfo if a verified agent is found with the requested capability
-    pub async fn find_agent_by_capability(&self, capability: &str) -> Result<Option<AgentInfo>, Status> {
+    pub async fn find_agent_by_capability(
+        &self,
+        capability: &str,
+    ) -> Result<Option<AgentInfo>, Status> {
         log::info!("Looking for agent with capability: {}", capability);
-        
+
         // Get the agent registry client with lock protection
         let registry_client = match tokio::time::timeout(
             std::time::Duration::from_secs(1),
-            self.agent_registry_client.lock()
-        ).await {
+            self.agent_registry_client.lock(),
+        )
+        .await
+        {
             Ok(guard) => guard,
             Err(_) => {
                 log::error!("Timeout while acquiring lock on agent registry client");
                 return Err(Status::internal("Internal lock timeout"));
             }
         };
-        
+
         if let Some(client) = &*registry_client {
             // Query Agent Registry for agents with this capability
-            let request = tonic::Request::new(
-                GetAgentRequest {
-                    name: String::new(),
-                    capability: capability.to_string(),
-                }
-            );
-            
+            let request = tonic::Request::new(GetAgentRequest {
+                name: String::new(),
+                capability: capability.to_string(),
+            });
+
             // Use a timeout for the registry query
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(3),
-                client.get_agent(request)
-            ).await {
+            match tokio::time::timeout(std::time::Duration::from_secs(3), client.get_agent(request))
+                .await
+            {
                 Ok(Ok(response)) => {
                     let resp = response.into_inner();
                     if resp.found {
                         if let Some(agent) = resp.agent {
                             // Agent Registry only returns verified agents
-                            log::info!("Found verified agent '{}' for capability '{}'", agent.name, capability);
-                            
+                            log::info!(
+                                "Found verified agent '{}' for capability '{}'",
+                                agent.name,
+                                capability
+                            );
+
                             // Get the host from environment or default to localhost
-                            let host = std::env::var("SERVICE_HOST").unwrap_or_else(|_| "localhost".to_string());
-                            
+                            let host = std::env::var("SERVICE_HOST")
+                                .unwrap_or_else(|_| "localhost".to_string());
+
                             return Ok(Some(AgentInfo {
                                 name: agent.name,
                                 endpoint: format!("http://{}:{}", host, agent.port),
@@ -436,37 +439,52 @@ impl OrchestratorServer {
                             }));
                         }
                     }
-                    
+
                     log::warning!("No verified agent found with capability: {}", capability);
                     Ok(None)
-                },
+                }
                 Ok(Err(e)) => {
-                    log::warning!("Agent registry returned error for capability {}: {}", capability, e);
-                    
+                    log::warning!(
+                        "Agent registry returned error for capability {}: {}",
+                        capability,
+                        e
+                    );
+
                     // Map specific error codes to appropriate statuses
                     match e.code() {
                         tonic::Code::Unavailable => {
                             log::error!("Agent Registry service unavailable: {}", e.message());
-                            Err(Status::unavailable(format!("Agent Registry unavailable: {}", e.message())))
-                        },
+                            Err(Status::unavailable(format!(
+                                "Agent Registry unavailable: {}",
+                                e.message()
+                            )))
+                        }
                         tonic::Code::DeadlineExceeded => {
                             log::error!("Agent Registry timed out: {}", e.message());
                             Err(Status::deadline_exceeded("Agent Registry timeout"))
-                        },
+                        }
                         _ => {
                             log::error!("Agent Registry error: {}", e.message());
-                            Err(Status::internal(format!("Agent Registry error: {}", e.message())))
+                            Err(Status::internal(format!(
+                                "Agent Registry error: {}",
+                                e.message()
+                            )))
                         }
                     }
-                },
+                }
                 Err(_) => {
-                    log::warning!("Timeout querying Agent Registry for capability {}", capability);
+                    log::warning!(
+                        "Timeout querying Agent Registry for capability {}",
+                        capability
+                    );
                     Err(Status::deadline_exceeded("Agent Registry query timeout"))
                 }
             }
         } else {
             log::warning!("Agent Registry client not initialized");
-            Err(Status::failed_precondition("Agent Registry client not initialized"))
+            Err(Status::failed_precondition(
+                "Agent Registry client not initialized",
+            ))
         }
     }
 }
@@ -486,16 +504,20 @@ impl OrchestratorService for OrchestratorServer {
         request: Request<ProtoRequest>,
     ) -> Result<Response<AgiResponse>, Status> {
         let req_data = request.into_inner();
-        
-        log::info!("Received ProcessRequest: id={}, service={}, method={}",
-            req_data.id, req_data.service, req_data.method);
+
+        log::info!(
+            "Received ProcessRequest: id={}, service={}, method={}",
+            req_data.id,
+            req_data.service,
+            req_data.method
+        );
 
         // Simple implementation for now - in production this would coordinate with services
         let final_answer = format!(
             "Processed request {} for service {} using method {}",
             req_data.id, req_data.service, req_data.method
         );
-        
+
         let execution_plan = format!(
             "1. Received request\n2. Validated input\n3. Processed via {}\n4. Returned result",
             req_data.service
@@ -517,9 +539,13 @@ impl OrchestratorService for OrchestratorServer {
         request: Request<ProtoRequest>,
     ) -> Result<Response<AgiResponse>, Status> {
         let req_data = request.into_inner();
-        
-        log::info!("Received PlanAndExecute request: id={}, service={}, method={}", 
-            req_data.id, req_data.service, req_data.method);
+
+        log::info!(
+            "Received PlanAndExecute request: id={}, service={}, method={}",
+            req_data.id,
+            req_data.service,
+            req_data.method
+        );
 
         // Get the Data Router client
         let mut router_client = self.get_data_router_client().await?;
@@ -531,7 +557,7 @@ impl OrchestratorService for OrchestratorServer {
 
         // Step 0: Context Enrichment - Call Context Manager to get enriched context
         let mut enriched_prompt = user_query.clone().to_string();
-        
+
         if let Some(mut cm_client) = self.get_context_manager_client().await {
             log::info!("Enriching context for request: {}", req_data.id);
             let context_req = ContextRequest {
@@ -539,17 +565,31 @@ impl OrchestratorService for OrchestratorServer {
                 query: user_query.to_string(),
                 agent_type: "master".to_string(),
                 max_context_tokens: 2000,
-                kb_sources: vec!["mind".to_string(), "soul".to_string(), "heart".to_string(), "social".to_string()],
+                kb_sources: vec![
+                    "mind".to_string(),
+                    "soul".to_string(),
+                    "heart".to_string(),
+                    "social".to_string(),
+                ],
             };
-            
-            match cm_client.enrich_context(tonic::Request::new(context_req)).await {
+
+            match cm_client
+                .enrich_context(tonic::Request::new(context_req))
+                .await
+            {
                 Ok(resp) => {
                     let enriched = resp.into_inner();
                     enriched_prompt = enriched.system_prompt;
-                    log::info!("Context enriched. Tokens used: {}", enriched.total_tokens_used);
+                    log::info!(
+                        "Context enriched. Tokens used: {}",
+                        enriched.total_tokens_used
+                    );
                 }
                 Err(e) => {
-                    log::warn!("Context enrichment failed (proceeding with raw query): {}", e);
+                    log::warn!(
+                        "Context enrichment failed (proceeding with raw query): {}",
+                        e
+                    );
                 }
             }
         }
@@ -569,8 +609,9 @@ impl OrchestratorService for OrchestratorServer {
                     parameters: std::collections::HashMap::new(),
                 };
                 let mut buf = Vec::new();
-                generate_req.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode GenerateRequest: {}", e)))?;
+                generate_req.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode GenerateRequest: {}", e))
+                })?;
                 buf
             },
             metadata: {
@@ -594,11 +635,8 @@ impl OrchestratorService for OrchestratorServer {
         let planning_response = match planning_response {
             Ok(resp) => resp,
             Err(status) => {
-                let err = classify_status_error(
-                    OrchestrationStage::Planning,
-                    "llm-service",
-                    &status,
-                );
+                let err =
+                    classify_status_error(OrchestrationStage::Planning, "llm-service", &status);
                 return log_critical_failure_and_build_response(err, &req_data, None);
             }
         };
@@ -639,9 +677,9 @@ impl OrchestratorService for OrchestratorServer {
             action: plan_text.clone(),
             context: String::new(),
         };
-        
+
         let ethics_payload = prost::Message::encode_to_vec(&ethics_req);
-        
+
         let ethics_route_req = RouteRequest {
             target_service: "soul-kb".to_string(),
             request: Some(ProtoRequest {
@@ -653,17 +691,29 @@ impl OrchestratorService for OrchestratorServer {
             }),
         };
 
-        match router_client.route(tonic::Request::new(ethics_route_req)).await {
+        match router_client
+            .route(tonic::Request::new(ethics_route_req))
+            .await
+        {
             Ok(resp) => {
                 let inner = resp.into_inner();
                 if let Some(response) = inner.response {
                     if response.status_code == 200 {
-                        if let Ok(ethics_resp) = EthicsCheckResponse::decode(response.payload.as_slice()) {
+                        if let Ok(ethics_resp) =
+                            EthicsCheckResponse::decode(response.payload.as_slice())
+                        {
                             if !ethics_resp.allowed {
-                                log::warn!("Soul-KB blocked action: {:?}", ethics_resp.violated_values);
+                                log::warn!(
+                                    "Soul-KB blocked action: {:?}",
+                                    ethics_resp.violated_values
+                                );
                                 return Ok(Response::new(AgiResponse {
-                                    final_answer: format!("Action blocked by ethical constraints: {:?}", ethics_resp.violated_values),
-                                    execution_plan: "Execution halted due to ethical violation".to_string(),
+                                    final_answer: format!(
+                                        "Action blocked by ethical constraints: {:?}",
+                                        ethics_resp.violated_values
+                                    ),
+                                    execution_plan: "Execution halted due to ethical violation"
+                                        .to_string(),
                                     routed_service: "soul-kb".to_string(),
                                     phoenix_session_id: req_data.id.clone(),
                                     output_artifact_urls: Vec::new(),
@@ -695,8 +745,9 @@ impl OrchestratorService for OrchestratorServer {
                     },
                 };
                 let mut buf = Vec::new();
-                validation_req.encode(&mut buf)
-                    .map_err(|e| Status::internal(format!("Failed to encode ValidationRequest: {}", e)))?;
+                validation_req.encode(&mut buf).map_err(|e| {
+                    Status::internal(format!("Failed to encode ValidationRequest: {}", e))
+                })?;
                 buf
             },
             metadata: std::collections::HashMap::new(),
@@ -714,11 +765,8 @@ impl OrchestratorService for OrchestratorServer {
         let safety_response = match safety_response {
             Ok(resp) => resp,
             Err(status) => {
-                let err = classify_status_error(
-                    OrchestrationStage::Safety,
-                    "safety-service",
-                    &status,
-                );
+                let err =
+                    classify_status_error(OrchestrationStage::Safety, "safety-service", &status);
                 return log_critical_failure_and_build_response(err, &req_data, None);
             }
         };
@@ -726,18 +774,31 @@ impl OrchestratorService for OrchestratorServer {
         let safety_data = safety_response.into_inner();
         if let Some(safety_resp) = safety_data.response {
             // Check if the request was approved
-            if let Ok(validation_resp) = ValidationResponse::decode(safety_resp.payload.as_slice()) {
+            if let Ok(validation_resp) = ValidationResponse::decode(safety_resp.payload.as_slice())
+            {
                 if !validation_resp.approved {
-                    log::warn!("Safety Service rejected the request: {}", validation_resp.reason);
+                    log::warn!(
+                        "Safety Service rejected the request: {}",
+                        validation_resp.reason
+                    );
                     return Ok(Response::new(AgiResponse {
-                        final_answer: format!("Request rejected by Safety Service: {}", validation_resp.reason),
-                        execution_plan: format!("Safety check failed. Risk level: {}", validation_resp.risk_level),
+                        final_answer: format!(
+                            "Request rejected by Safety Service: {}",
+                            validation_resp.reason
+                        ),
+                        execution_plan: format!(
+                            "Safety check failed. Risk level: {}",
+                            validation_resp.risk_level
+                        ),
                         routed_service: "safety-service".to_string(),
                         phoenix_session_id: req_data.id.clone(),
                         output_artifact_urls: Vec::new(),
                     }));
                 }
-                log::info!("Safety Service approved the request (risk level: {})", validation_resp.risk_level);
+                log::info!(
+                    "Safety Service approved the request (risk level: {})",
+                    validation_resp.risk_level
+                );
             }
         }
 
@@ -761,9 +822,9 @@ impl OrchestratorService for OrchestratorServer {
                     };
 
                     let mut tool_payload = Vec::new();
-                    tool_request
-                        .encode(&mut tool_payload)
-                        .map_err(|e| Status::internal(format!("Failed to encode ToolRequest: {}", e)))?;
+                    tool_request.encode(&mut tool_payload).map_err(|e| {
+                        Status::internal(format!("Failed to encode ToolRequest: {}", e))
+                    })?;
 
                     let mut metadata = req_data.metadata.clone();
                     metadata.insert(
@@ -809,16 +870,11 @@ impl OrchestratorService for OrchestratorServer {
                     let response = tool_route_response
                         .into_inner()
                         .response
-                        .ok_or_else(|| {
-                            Status::internal("Tools Service returned empty response")
-                        })?;
+                        .ok_or_else(|| Status::internal("Tools Service returned empty response"))?;
 
-                    let tool_response = ToolResponse::decode(response.payload.as_slice())
-                        .map_err(|e| {
-                            Status::internal(format!(
-                                "Failed to decode ToolResponse: {}",
-                                e
-                            ))
+                    let tool_response =
+                        ToolResponse::decode(response.payload.as_slice()).map_err(|e| {
+                            Status::internal(format!("Failed to decode ToolResponse: {}", e))
                         })?;
 
                     exec_ctx.tool_results.push(format!(
@@ -900,20 +956,15 @@ impl OrchestratorService for OrchestratorServer {
                 "plan_and_execute".to_string(),
             );
 
-            let generate_req = GenerateRequest {
-                prompt,
-                parameters,
-            };
+            let generate_req = GenerateRequest { prompt, parameters };
 
             let mut buf = Vec::new();
-            generate_req
-                .encode(&mut buf)
-                .map_err(|e| {
-                    Status::internal(format!(
-                        "Failed to encode GenerateRequest for execution: {}",
-                        e
-                    ))
-                })?;
+            generate_req.encode(&mut buf).map_err(|e| {
+                Status::internal(format!(
+                    "Failed to encode GenerateRequest for execution: {}",
+                    e
+                ))
+            })?;
 
             ProtoRequest {
                 id: format!("{}-final", req_data.id),
@@ -941,11 +992,8 @@ impl OrchestratorService for OrchestratorServer {
         let execution_response = match execution_response {
             Ok(resp) => resp,
             Err(status) => {
-                let err = classify_status_error(
-                    OrchestrationStage::Execution,
-                    &target_service,
-                    &status,
-                );
+                let err =
+                    classify_status_error(OrchestrationStage::Execution, &target_service, &status);
                 return log_critical_failure_and_build_response(err, &req_data, None);
             }
         };
@@ -957,13 +1005,13 @@ impl OrchestratorService for OrchestratorServer {
         let final_answer;
         let execution_plan_details;
         let routed_service = execution_data.routed_to.clone();
-        
+
         if let Some(exec_resp) = execution_data.response {
             log::info!("Execution complete. Response ID: {}", exec_resp.id);
-            
+
             // Extract the final answer from the execution response
             final_answer = String::from_utf8_lossy(&exec_resp.payload).to_string();
-            
+
             // Build comprehensive execution plan, including any tool results
             let mut plan_section = format!("Execution Plan:\n{}\n", plan_text);
 
@@ -978,10 +1026,7 @@ impl OrchestratorService for OrchestratorServer {
 
             execution_plan_details = format!(
                 "{}\nStatus: {}\nRouted To: {}\nError: {}",
-                plan_section,
-                exec_resp.status_code,
-                routed_service,
-                exec_resp.error
+                plan_section, exec_resp.status_code, routed_service, exec_resp.error
             );
 
             // Log analyzer integration removed due to undefined ExecutionLog type in updated proto
@@ -994,7 +1039,10 @@ impl OrchestratorService for OrchestratorServer {
                 "Orchestrator completed PlanAndExecute for request: {}. Routed to: {}",
                 req_data.id, execution_data.routed_to
             );
-            execution_plan_details = format!("Plan: {}\nRouted to: {}", plan_text, execution_data.routed_to);
+            execution_plan_details = format!(
+                "Plan: {}\nRouted to: {}",
+                plan_text, execution_data.routed_to
+            );
         }
 
         // Create the unified AgiResponse
@@ -1013,15 +1061,21 @@ impl OrchestratorService for OrchestratorServer {
                 request_id: req_data.id.clone(),
                 action_description: format!("PlanAndExecute: {}", user_query),
                 outcome: reply.final_answer.clone(),
-                success: true,  // AgiResponse always indicates success in structure
+                success: true, // AgiResponse always indicates success in structure
                 context: std::collections::HashMap::new(),
             };
-            
+
             // Spawn async task to avoid blocking the response
             tokio::spawn(async move {
-                match reflection_client.reflect_on_action(tonic::Request::new(reflection_req)).await {
+                match reflection_client
+                    .reflect_on_action(tonic::Request::new(reflection_req))
+                    .await
+                {
                     Ok(resp) => {
-                        log::info!("Reflection complete: confidence={}", resp.into_inner().confidence_score);
+                        log::info!(
+                            "Reflection complete: confidence={}",
+                            resp.into_inner().confidence_score
+                        );
                     }
                     Err(e) => {
                         log::debug!("Reflection call failed (non-critical): {}", e);
@@ -1038,25 +1092,37 @@ impl OrchestratorService for OrchestratorServer {
         request: Request<RouteRequest>,
     ) -> Result<Response<RouteResponse>, Status> {
         let req_data = request.into_inner();
-        let request_id = req_data.request.as_ref().map(|r| r.id.clone()).unwrap_or_else(|| "unknown".to_string());
-        
-        log::info!("Received Route request: request_id={}, target_service={}", request_id, req_data.target_service);
+        let request_id = req_data
+            .request
+            .as_ref()
+            .map(|r| r.id.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        log::info!(
+            "Received Route request: request_id={}, target_service={}",
+            request_id,
+            req_data.target_service
+        );
 
         // Check if this is a request for a specialty agent by capability
         let target = req_data.target_service.clone();
         if target.starts_with("capability:") {
             let capability = target.trim_start_matches("capability:").trim();
             log::info!("Looking for agent with capability: {}", capability);
-            
+
             // Find an agent with this capability with error handling
             match self.find_agent_by_capability(capability).await {
                 Ok(Some(agent)) => {
                     // Found a verified agent, route the request
-                    log::info!("Routing request {} to agent {} at {}",
-                        request_id, agent.name, agent.endpoint);
-                    
+                    log::info!(
+                        "Routing request {} to agent {} at {}",
+                        request_id,
+                        agent.name,
+                        agent.endpoint
+                    );
+
                     // Actual routing logic would go here...
-                    
+
                     let reply = RouteResponse {
                         response: Some(ProtoResponse {
                             id: request_id.clone(),
@@ -1069,49 +1135,59 @@ impl OrchestratorService for OrchestratorServer {
                     };
 
                     return Ok(Response::new(reply));
-                },
+                }
                 Ok(None) => {
                     // No verified agent available with this capability
-                    log::warning!("No verified agent available with capability: {}", capability);
-                    return Err(Status::unavailable(
-                        format!("No available agent with capability: {}", capability))
+                    log::warning!(
+                        "No verified agent available with capability: {}",
+                        capability
                     );
-                },
+                    return Err(Status::unavailable(format!(
+                        "No available agent with capability: {}",
+                        capability
+                    )));
+                }
                 Err(status) => {
                     // Registry error occurred
-                    log::error!("Agent Registry error while looking for capability {}: {}",
-                        capability, status.message());
-                    
+                    log::error!(
+                        "Agent Registry error while looking for capability {}: {}",
+                        capability,
+                        status.message()
+                    );
+
                     // Add request context to the error
                     return Err(Status::new(
                         status.code(),
-                        format!("Agent lookup failed for request {}: {}",
-                            request_id, status.message())
+                        format!(
+                            "Agent lookup failed for request {}: {}",
+                            request_id,
+                            status.message()
+                        ),
                     ));
                 }
             }
         }
-        
+
         #[cfg(test)]
         pub mod test_utils {
             use crate::agi_core::agent_registry_service_client::AgentRegistryServiceClient;
             use std::sync::Arc;
             use tokio::sync::Mutex;
-            
+
             // Helper function to create a test orchestrator with a mock registry client
             pub async fn setup_test_orchestrator_with_registry<T>(
-                mock_registry: T
+                mock_registry: T,
             ) -> crate::OrchestratorServer
             where
-                T: Into<Option<AgentRegistryServiceClient<tonic::transport::Channel>>>
+                T: Into<Option<AgentRegistryServiceClient<tonic::transport::Channel>>>,
             {
                 let server = crate::OrchestratorServer::new();
-                
+
                 {
                     let mut registry_client = server.agent_registry_client.lock().await;
                     *registry_client = mock_registry.into();
                 }
-                
+
                 server
             }
         }
@@ -1140,12 +1216,16 @@ impl HealthService for OrchestratorServer {
         _request: Request<HealthRequest>,
     ) -> Result<Response<HealthResponse>, Status> {
         let uptime = START_TIME.elapsed().as_secs() as i64;
-        
+
         // Check Data Router dependency
         let mut dependencies = std::collections::HashMap::new();
         let data_router_status = {
             let guard = self.data_router_client.lock().await;
-            if guard.is_some() { "SERVING" } else { "NOT_SERVING" }
+            if guard.is_some() {
+                "SERVING"
+            } else {
+                "NOT_SERVING"
+            }
         };
         dependencies.insert("data_router".to_string(), data_router_status.to_string());
 
@@ -1153,7 +1233,11 @@ impl HealthService for OrchestratorServer {
             healthy: data_router_status == "SERVING",
             service_name: "orchestrator-service".to_string(),
             uptime_seconds: uptime,
-            status: if data_router_status == "SERVING" { "SERVING".to_string() } else { "DEGRADED".to_string() },
+            status: if data_router_status == "SERVING" {
+                "SERVING".to_string()
+            } else {
+                "DEGRADED".to_string()
+            },
             dependencies,
         };
 
@@ -1175,17 +1259,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize Data Router client
     let router_addr = config_rs::get_client_address("DATA_ROUTER", 50060, None);
-    
-    if let Err(e) = orchestrator_server.init_data_router_client(router_addr.clone()).await {
-        log::warn!("Data Router client init failed: {}. Health will report degraded.", e);
+
+    if let Err(e) = orchestrator_server
+        .init_data_router_client(router_addr.clone())
+        .await
+    {
+        log::warn!(
+            "Data Router client init failed: {}. Health will report degraded.",
+            e
+        );
     } else {
         log::info!("Data Router client initialized: {}", router_addr);
     }
 
     // Initialize Reflection Service client (optional - continues if unavailable)
     let reflection_addr = config_rs::get_client_address("REFLECTION", 50065, None);
-    
-    if let Err(e) = orchestrator_server.init_reflection_client(reflection_addr.clone()).await {
+
+    if let Err(e) = orchestrator_server
+        .init_reflection_client(reflection_addr.clone())
+        .await
+    {
         log::info!("Reflection Service not available (optional): {}", e);
     } else {
         log::info!("Reflection Service client initialized: {}", reflection_addr);
@@ -1193,20 +1286,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize Agent Registry Service client (optional - for task delegation)
     let registry_addr = config_rs::get_client_address("AGENT_REGISTRY", 50070, None);
-    
-    if let Err(e) = orchestrator_server.init_agent_registry_client(registry_addr.clone()).await {
+
+    if let Err(e) = orchestrator_server
+        .init_agent_registry_client(registry_addr.clone())
+        .await
+    {
         log::info!("Agent Registry Service not available (optional): {}", e);
     } else {
-        log::info!("Agent Registry Service client initialized: {}", registry_addr);
+        log::info!(
+            "Agent Registry Service client initialized: {}",
+            registry_addr
+        );
     }
 
     // Initialize Context Manager Service client
     let context_manager_addr = config_rs::get_client_address("CONTEXT_MANAGER", 50056, None);
-    
-    if let Err(e) = orchestrator_server.init_context_manager_client(context_manager_addr.clone()).await {
-        log::warn!("Context Manager Service not available: {}. Will use raw prompts.", e);
+
+    if let Err(e) = orchestrator_server
+        .init_context_manager_client(context_manager_addr.clone())
+        .await
+    {
+        log::warn!(
+            "Context Manager Service not available: {}. Will use raw prompts.",
+            e
+        );
     } else {
-        log::info!("Context Manager Service client initialized: {}", context_manager_addr);
+        log::info!(
+            "Context Manager Service client initialized: {}",
+            context_manager_addr
+        );
     }
 
     // Get bind address from config
@@ -1226,4 +1334,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

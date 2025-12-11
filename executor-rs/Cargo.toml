@@ -48,3 +48,6 @@ winapi = { version = "0.3", features = [
 regex = "1.10"
 uuid = { version = "1.6", features = ["v4"] }
 tempfile = "3.8"
+
+[build-dependencies]
+tonic-prost-build = "0.14.2"
