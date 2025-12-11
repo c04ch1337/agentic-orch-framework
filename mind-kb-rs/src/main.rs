@@ -2,6 +2,7 @@
 // Main Entry Point for mind-kb-rs
 // Implements the MindKBService gRPC server with in-memory vector store
 
+use error_handling_rs::{Error, ErrorExt, RetryableError};
 use input_validation_rs::ValidationResult;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
@@ -13,33 +14,36 @@ use std::time::{Duration, Instant};
 use tokio::time;
 use tonic::{transport::Server, Request, Response, Status};
 
+// Local modules
+mod text_preprocessor;
+mod validation;
 mod vector_store;
+
+// Re-exports
+use validation::{
+    validate_fragment, validate_knowledge_query, validate_store_request,
+};
 use vector_store::VectorStore;
 
-// NLP Text Preprocessing Module
-mod text_preprocessor;
-
-// Input Validation Module
-mod validation;
-use validation::{
-    validate_content, validate_embedding, validate_metadata, validate_query,
-    validate_retrieve_request, validate_store_request,
+// Proto imports from lib.rs
+use crate::proto::agi_core::v1::{
+    health_service_server::{HealthService, HealthServiceServer},
+    llm_service_client::LlmServiceClient,
+    mind_kb_service_server::{MindKbService, MindKbServiceServer},
+    HealthRequest, HealthResponse, LlmProcessRequest, QueryRequest, QueryResponse, RetrieveRequest,
+    RetrieveResponse, StoreRequest, StoreResponse, KnowledgeFragment, KnowledgeQuery,
 };
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
-// Import Generated Code and Types
-pub mod agi_core {
-    tonic::include_proto!("agi_core");
-}
-
-use agi_core::{
+// Import proto modules from lib.rs
+use crate::proto::agi_core::v1::{
     health_service_server::{HealthService, HealthServiceServer},
     llm_service_client::LlmServiceClient,
     mind_kb_service_server::{MindKbService, MindKbServiceServer},
     HealthRequest, HealthResponse, LlmProcessRequest, QueryRequest, QueryResponse, RetrieveRequest,
-    RetrieveResponse, StoreRequest, StoreResponse,
+    RetrieveResponse, StoreRequest, StoreResponse, KnowledgeFragment, KnowledgeQuery,
 };
 
 // Memory configuration from environment variables
@@ -84,14 +88,18 @@ impl MindKBServer {
 
         // Attempt to connect to LLM service for real embeddings with retry logic
         for attempt in 1..=3 {
-            match LlmServiceClient::connect(self.llm_client_url.clone()).await {
+            match LlmServiceClient::connect(self.llm_client_url.clone())
+                .await
+                .map_err(|e| Error::new("LLM service connection failed").with_cause(e)) {
                 Ok(mut client) => {
                     let request = LlmProcessRequest {
                         operation: "embed".to_string(),
                         text: text.to_string(),
                     };
 
-                    match client.embed_text(request).await {
+                    match client.embed_text(request)
+                        .await
+                        .map_err(|e| Error::new("Embedding request failed").with_cause(e)) {
                         Ok(response) => {
                             let result = response.into_inner().result;
                             match serde_json::from_str::<Vec<f32>>(&result) {
@@ -178,7 +186,7 @@ impl MindKBServer {
         // This is still a fallback but better than pure random hash
         for (i, word) in words.iter().enumerate() {
             // Use a word hashing approach for more semantic-like representations
-            let word_hash: u64 = word.chars().fold(0, |acc, c| {
+            let word_hash: u64 = word.chars().fold(0u64, |acc, c| {
                 acc.wrapping_add((c as u64).wrapping_mul(31u64.pow(4)))
             });
 
@@ -197,7 +205,7 @@ impl MindKBServer {
         for (pos, word) in words.iter().enumerate().take(100) {
             // Limit to first 100 words
             let pos_f = pos as f32;
-            let word_hash = word.chars().fold(0, |acc, c| {
+            let word_hash = word.chars().fold(0u32, |acc, c| {
                 acc.wrapping_add((c as u32).wrapping_mul(31u32.pow(2)))
             }) as usize;
 
@@ -263,7 +271,13 @@ impl MindKbService for MindKBServer {
         );
 
         // Validate the query and limit
-        validate_query(&req_data.query, req_data.limit)
+        let query = KnowledgeQuery {
+            query_text: req_data.query.clone(),
+            limit: req_data.limit,
+            embedding: None, // Will be generated
+        };
+        
+        validate_knowledge_query(&query)
             .map_err(|e| Status::invalid_argument(format!("Invalid query: {}", e)))?;
 
         // Get embedding for query
@@ -304,7 +318,7 @@ impl MindKbService for MindKBServer {
 
         let reply = QueryResponse {
             results: results.clone(),
-            count: results.len() as i32,
+            count: i32::try_from(results.len()).unwrap(),
             metadata: {
                 let mut meta = std::collections::HashMap::new();
                 meta.insert("kb_type".to_string(), "mind".to_string());
@@ -335,21 +349,27 @@ impl MindKbService for MindKBServer {
             req_data.value.len()
         );
 
-        // Validate the request
-        validate_store_request(&req_data.key, &req_data.value, &req_data.metadata)
-            .map_err(|e| Status::invalid_argument(format!("Invalid store request: {}", e)))?;
+        // Create and validate fragment
+        let fragment = KnowledgeFragment {
+            content: String::from_utf8(req_data.value.clone())
+                .map_err(|e| Status::invalid_argument(format!("Value must be UTF-8 string: {}", e)))?,
+            metadata: req_data.metadata.clone(),
+        };
 
-        // Convert value bytes to string
-        let text = String::from_utf8(req_data.value.clone())
-            .map_err(|e| Status::invalid_argument(format!("Value must be UTF-8 string: {}", e)))?;
+        validate_fragment(&fragment)
+            .map_err(|e| Status::invalid_argument(format!("Invalid fragment: {}", e)))?;
 
-        // Sanitize content
-        let sanitized_text = validate_content(&text)
-            .map_err(|e| Status::invalid_argument(format!("Content validation failed: {}", e)))?;
+        // Validate the full store request
+        validate_store_request(&StoreRequest {
+            key: req_data.key.clone(),
+            fragment: Some(fragment.clone()),
+            embedding: None, // Will be generated
+        })
+        .map_err(|e| Status::invalid_argument(format!("Invalid store request: {}", e)))?;
 
-        // Validate and sanitize metadata
-        let sanitized_metadata = validate_metadata(&req_data.metadata)
-            .map_err(|e| Status::invalid_argument(format!("Metadata validation failed: {}", e)))?;
+        // Get sanitized content from validated fragment
+        let sanitized_text = fragment.content;
+        let sanitized_metadata = fragment.metadata;
 
         // Get embedding
         let embedding = self

@@ -57,8 +57,8 @@ impl Resilience {
     /// Execute a fallible operation with all configured resilience patterns
     pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T>
     where
-        F: Fn() -> Fut + Send + Sync,
-        Fut: Future<Output = Result<T>> + Send,
+        F: Fn() -> Fut + Send + Sync + Clone + 'static,
+        Fut: Future<Output = Result<T>> + Send + 'static,
         T: Send + 'static,
     {
         // Check circuit breaker first
@@ -66,10 +66,12 @@ impl Resilience {
         
         // Use retry with circuit breaker for each attempt
         let cb = Arc::clone(&self.circuit_breaker);
+        let operation = operation.clone();
         self.retry.execute(move || {
             let cb = Arc::clone(&cb);
+            let op = operation.clone();
             async move {
-                match operation().await {
+                match op().await {
                     Ok(value) => {
                         cb.record_success();
                         Ok(value)

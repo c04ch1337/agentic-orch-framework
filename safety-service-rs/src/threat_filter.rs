@@ -170,25 +170,27 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
     }
 
     // Run other pattern checks with similar timeout protection
-    for (patterns, name, severity) in [
+    let pattern_groups = [
         (
-            &SHELL_INJECTION_PATTERNS,
+            &*SHELL_INJECTION_PATTERNS,
             "SHELL_INJECTION",
             ThreatSeverity::Critical,
         ),
         (
-            &PATH_TRAVERSAL_PATTERNS,
+            &*PATH_TRAVERSAL_PATTERNS,
             "PATH_TRAVERSAL",
             ThreatSeverity::High,
         ),
-        (&XSS_PATTERNS, "XSS", ThreatSeverity::High),
-        (&RANSOMWARE_PATTERNS, "RANSOMWARE", ThreatSeverity::Critical),
+        (&*XSS_PATTERNS, "XSS", ThreatSeverity::High),
+        (&*RANSOMWARE_PATTERNS, "RANSOMWARE", ThreatSeverity::Critical),
         (
-            &CREDENTIAL_PATTERNS,
+            &*CREDENTIAL_PATTERNS,
             "CREDENTIAL_EXPOSURE",
             ThreatSeverity::Medium,
         ),
-    ] {
+    ];
+
+    for (patterns, name, severity) in pattern_groups.iter() {
         for pattern in patterns.iter() {
             let start_time = Instant::now();
 
@@ -211,6 +213,7 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
                 };
             }
         }
+    }
     }
 
     // No threats detected

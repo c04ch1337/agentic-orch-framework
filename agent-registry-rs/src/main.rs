@@ -1,6 +1,6 @@
 // agent-registry-rs/src/main.rs
 // Agent Registry Service - Agent management and lookup
-// Port 50067
+// Port 50070
 
 use once_cell::sync::Lazy;
 use serde::Deserialize;
@@ -570,7 +570,7 @@ impl HealthService for AgentRegistryServer {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let addr_str = env::var("AGENT_REGISTRY_ADDR").unwrap_or_else(|_| "0.0.0.0:50067".to_string());
+    let addr_str = env::var("AGENT_REGISTRY_ADDR").unwrap_or_else(|_| "0.0.0.0:50070".to_string());
 
     let addr: SocketAddr = if addr_str.starts_with("http://") {
         addr_str

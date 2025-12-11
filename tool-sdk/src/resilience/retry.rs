@@ -75,8 +75,8 @@ impl RetryExecutor {
     /// Execute a fallible operation with retries according to the configuration
     pub async fn execute<F, Fut, T>(&self, operation: F) -> Result<T>
     where
-        F: Fn() -> Fut + Send + Sync,
-        Fut: Future<Output = Result<T>> + Send,
+        F: Fn() -> Fut + Send + Sync + Clone + 'static,
+        Fut: Future<Output = Result<T>> + Send + 'static,
         T: Send + 'static,
     {
         // Build the exponential backoff from our config
@@ -91,9 +91,10 @@ impl RetryExecutor {
         
         // Track retry attempts
         let mut attempts = 0;
+        let op = operation.clone();
         
         loop {
-            let result = operation().await;
+            let result = op().await;
             
             match result {
                 Ok(value) => return Ok(value),

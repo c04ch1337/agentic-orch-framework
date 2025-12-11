@@ -247,18 +247,8 @@ pub fn get_all_services() -> Vec<ServiceDefinition> {
         },
         ServiceDefinition {
             name: "AGENT_REGISTRY".to_string(),
-            default_port: 50067,
+            default_port: 50070,
             display_name: "Agent Registry Service".to_string(),
-        },
-        ServiceDefinition {
-            name: "RED_TEAM".to_string(),
-            default_port: 50068,
-            display_name: "Red Team Service".to_string(),
-        },
-        ServiceDefinition {
-            name: "BLUE_TEAM".to_string(),
-            default_port: 50069,
-            display_name: "Blue Team Service".to_string(),
         },
         ServiceDefinition {
             name: "SECRETS".to_string(),

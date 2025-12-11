@@ -4,29 +4,44 @@
 
 use input_validation_rs::ValidationResult;
 use once_cell::sync::Lazy;
+use serde_json::json;
 use std::collections::HashMap;
 use std::env;
+use std::fmt;
 use std::sync::Arc;
 use uuid::Uuid;
+
+// Helper function to convert PointId to String
+fn point_id_to_string(point_id: &qdrant_client::qdrant::PointId) -> String {
+    match &point_id.point_id_options {
+        Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(n)) => n.to_string(),
+        Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(u)) => u.to_string(),
+        Some(qdrant_client::qdrant::point_id::PointIdOptions::String(s)) => s.clone(),
+        None => String::new(),
+    }
+}
 
 // Import validation functions
 use crate::validation::{validate_content, validate_embedding, validate_metadata};
 
 use qdrant_client::prelude::*;
-use qdrant_client::qdrant::{
-    vectors_config::Config, with_payload_selector::SelectorOptions, with_vectors_selector,
-    CreateCollection, Distance, PointStruct, SearchPoints, VectorParams, VectorsConfig,
-    WithPayloadSelector, WithVectorsSelector,
+use qdrant_client::{
+    client::Qdrant,
+    qdrant::{
+        vectors_config::Config, with_payload_selector::SelectorOptions, with_vectors_selector,
+        CreateCollection, Distance, PointStruct, SearchPoints, VectorParams, VectorsConfig,
+        WithPayloadSelector, WithVectorsSelector, PointId, point_id::PointIdOptions,
+    },
 };
 
 const DEFAULT_VECTOR_SIZE: usize = 1536; // Standard embedding size
 const COLLECTION_NAME: &str = "mind_facts";
 
 // Initialize the Qdrant client as a global singleton
-static QDRANT_CLIENT: Lazy<QdrantClient> = Lazy::new(|| {
+static QDRANT_CLIENT: Lazy<Qdrant> = Lazy::new(|| {
     let url = env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6334".to_string());
     log::info!("Connecting to Qdrant at {}", url);
-    QdrantClient::from_url(&url).expect("Failed to initialize Qdrant client")
+    Qdrant::new(&url).expect("Failed to initialize Qdrant client")
 });
 
 /// Primary vector store implemented with Qdrant for Phase 8 requirements
@@ -84,7 +99,7 @@ impl FallbackStore {
             // Extract the vector
             if let Some(vectors) = &point.vectors {
                 let embedding = match &vectors.vectors_options {
-                    Some(qdrant_client::qdrant::vectors::VectorsOptions::Vector(v)) => &v.data,
+                    Some(qdrant_client::qdrant::vectors::VectorsOptions::Vector(v)) => &v.vector,
                     _ => continue,
                 };
 
@@ -102,7 +117,7 @@ impl FallbackStore {
                 // Apply similarity threshold filtering
                 if score >= threshold {
                     scored.push((
-                        point.id.clone().unwrap_or_default().to_string(),
+                        point.id.clone().map(|id| format!("{}", id)).unwrap_or_default(),
                         score,
                         text,
                     ));
@@ -209,10 +224,20 @@ impl VectorStore {
 
     /// Get the number of entries in the store
     pub fn len(&self) -> usize {
-        match QDRANT_CLIENT.collection_info(&self.collection_name).await {
-            Ok(info) => info.points_count as usize,
-            Err(e) => {
-                log::warn!("Failed to get collection info, using fallback: {}", e);
+        // Use blocking to handle async call in sync context
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                match handle.block_on(QDRANT_CLIENT.collection_info(&self.collection_name)) {
+                    Ok(info) => info.result.points_count as usize,
+                    Err(e) => {
+                        log::warn!("Failed to get collection info, using fallback: {}", e);
+                        self.fallback_store.len()
+                    }
+                }
+            }
+            Err(_) => {
+                // No runtime available, use fallback
+                log::warn!("No tokio runtime available, using fallback store length");
                 self.fallback_store.len()
             }
         }
@@ -261,11 +286,15 @@ impl VectorStore {
 
         // Create the point
         let point = PointStruct {
-            id: Some(point_id.into()),
+            id: Some(PointId {
+                point_id_options: Some(PointIdOptions::String(point_id)),
+            }),
             vectors: Some(qdrant_client::qdrant::Vectors {
                 vectors_options: Some(qdrant_client::qdrant::vectors::VectorsOptions::Vector(
                     qdrant_client::qdrant::Vector {
-                        data: embedding.clone(),
+                        vector: embedding.clone(),
+                        indices: Vec::new(),
+                        vectors_count: 1,
                     },
                 )),
             }),
@@ -274,7 +303,12 @@ impl VectorStore {
 
         // Try to store in Qdrant
         match QDRANT_CLIENT
-            .upsert_points(&self.collection_name, vec![point.clone()])
+            .upsert_points(
+                &self.collection_name,
+                None,
+                vec![point.clone()],
+                None,
+            )
             .await
         {
             Ok(_) => {
@@ -297,14 +331,8 @@ impl VectorStore {
 
     // Prune older memories if we exceed memory limit
     async fn prune_if_needed(&self) -> Result<(), String> {
-        // Check current memory count
-        let count = match QDRANT_CLIENT.collection_info(&self.collection_name).await {
-            Ok(info) => info.points_count as usize,
-            Err(e) => {
-                log::warn!("Failed to get collection info for pruning: {}", e);
-                return Err(format!("Failed to get collection info: {}", e));
-            }
-        };
+        // Use the helper function to get collection info
+        let count = self.get_collection_info().await?;
 
         // If count exceeds limit, prune oldest entries
         if count > self.memory_limit {
@@ -440,7 +468,7 @@ impl VectorStore {
                     .into_iter()
                     .filter(|point| point.score >= threshold) // Apply similarity threshold
                     .map(|point| {
-                        let id = point.id.map(|id| id.to_string()).unwrap_or_default();
+                        let id = point.id.as_ref().map(|pid| pid.to_string()).unwrap_or_default();
                         let mut score = point.score;
 
                         // Extract text from payload
@@ -471,8 +499,8 @@ impl VectorStore {
                         // This is done in a fire-and-forget manner to not slow down searches
                         if decay_factor < 1.0 {
                             // Only update if the item was affected by decay
-                            let collection_name = self.collection_name.clone();
-                            let point_id = id.clone();
+                            let collection_name = self.collection_name.to_string();
+                            let point_id = id.to_string();
 
                             tokio::spawn(async move {
                                 let now = chrono::Utc::now().timestamp();
@@ -483,8 +511,15 @@ impl VectorStore {
                                 match QDRANT_CLIENT
                                     .set_payload(
                                         &collection_name,
-                                        &[point_id.into()],
+                                        None,
+                                        &qdrant_client::qdrant::PointsSelector {
+                                            points: vec![PointId {
+                                                point_id_options: Some(PointIdOptions::String(point_id)),
+                                            }],
+                                            ..Default::default()
+                                        },
                                         payload,
+                                        None,
                                         None,
                                     )
                                     .await
@@ -524,6 +559,17 @@ impl VectorStore {
 
     pub fn entry_count(&self) -> usize {
         self.len()
+    }
+
+    // Helper function to get collection info asynchronously
+    async fn get_collection_info(&self) -> Result<usize, String> {
+        match QDRANT_CLIENT.collection_info(&self.collection_name).await {
+            Ok(info) => Ok(info.result.points_count as usize),
+            Err(e) => {
+                log::warn!("Failed to get collection info: {}", e);
+                Ok(self.fallback_store.len())
+            }
+        }
     }
 }
 

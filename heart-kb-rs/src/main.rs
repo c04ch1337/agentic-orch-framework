@@ -33,7 +33,6 @@ use agi_core::{
     QueryResponse,
     RetrieveRequest,
     RetrieveResponse,
-    Sentiment,
     SentimentFact,
     StoreRequest,
     StoreResponse,
@@ -96,7 +95,7 @@ impl HeartKbService for HeartKBServer {
         );
 
         // Validate query and limit using our validation library
-        if let Err(err) = validate_query(&req_data.query, req_data.limit) {
+        if let Err(err) = validate_query(&req_data.query, req_data.limit as u64) {
             log::warn!("Query validation failed: {}", err);
             return Err(Status::invalid_argument(format!(
                 "Invalid query parameters: {}",

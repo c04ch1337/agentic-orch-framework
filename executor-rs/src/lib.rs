@@ -28,13 +28,14 @@ pub struct Executor {
 impl Executor {
     /// Create a new Executor instance
     pub fn new() -> Self {
-        // Initialize service health tracking
+        // Create service health tracking
         let service_health = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
+        let service_health_clone = Arc::clone(&service_health);
 
         // Initialize known services as healthy
         let service_names = ["shell", "python", "input_simulation", "process_watchdog"];
         tokio::spawn(async move {
-            let mut health = service_health.write().await;
+            let mut health = service_health_clone.write().await;
             for &service in &service_names {
                 health.insert(service.to_string(), true);
             }

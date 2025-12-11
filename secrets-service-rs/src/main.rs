@@ -3,7 +3,6 @@
 
 use config_rs;
 use std::env;
-use std::net::SocketAddr;
 use tonic::transport::Server;
 
 // Import modules
@@ -54,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Create service implementation
-    let service = SecretsServiceImpl::new(vault_client);
+    let service = SecretsServiceImpl::new(vault_client).await;
     let service = SecretsServiceServer::new(service);
 
     log::info!("Starting gRPC server...");

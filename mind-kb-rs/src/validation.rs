@@ -1,6 +1,7 @@
 // mind-kb-rs/src/validation.rs
 // Input validation for Mind KB Service
 
+use crate::proto::agi_core::v1::{KnowledgeFragment, KnowledgeQuery, StoreRequest};
 use input_validation_rs::{
     sanitizers::{JsonSanitizer, StringSanitizer},
     validate,
@@ -136,62 +137,44 @@ pub fn validate_content(content: &str) -> ValidationResult<String> {
     Ok(sanitized)
 }
 
-/// Schema for validating a store request
-#[derive(Serialize, Deserialize)]
-struct StoreRequestSchema {
-    key: String,
-    value: String,
-    metadata: HashMap<String, String>,
-}
-
-/// Validates a store request against schema
-pub fn validate_store_request(
-    key: &str,
-    value: &[u8],
-    metadata: &HashMap<String, String>,
-) -> ValidationResult<()> {
-    // Validate key
-    validate!(
-        key,
-        StringValidation::not_empty(),
-        StringValidation::max_length(256),
-        StringValidation::alphanumeric_with_underscore_and_dots(),
-        SecurityValidation::no_path_traversal()
-    )?;
-
-    // Validate value
-    if value.is_empty() {
-        return Err("Value cannot be empty".to_string());
-    }
-
-    if value.len() > MAX_CONTENT_LENGTH {
-        return Err(format!(
-            "Value too large: {} bytes, max allowed: {} bytes",
-            value.len(),
-            MAX_CONTENT_LENGTH
-        ));
-    }
-
-    // Ensure value is valid UTF-8
-    match std::str::from_utf8(value) {
-        Ok(_) => {}
-        Err(e) => return Err(format!("Value is not valid UTF-8: {}", e)),
-    }
+/// Validates a KnowledgeFragment for storage
+pub fn validate_fragment(fragment: &KnowledgeFragment) -> ValidationResult<()> {
+    // Validate content
+    validate_content(&fragment.content)?;
 
     // Validate metadata
-    validate_metadata(metadata)?;
+    let metadata: HashMap<String, String> = fragment.metadata.iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    validate_metadata(&metadata)?;
 
     Ok(())
 }
 
-/// Validates a retrieve request
-pub fn validate_retrieve_request(key: &str) -> ValidationResult<()> {
-    validate!(
-        key,
-        StringValidation::not_empty(),
-        StringValidation::max_length(256),
-        StringValidation::alphanumeric_with_underscore_and_dots(),
-        SecurityValidation::no_path_traversal(),
-        SecurityValidation::no_code_injection()
-    )
+/// Validates a KnowledgeQuery
+pub fn validate_knowledge_query(query: &KnowledgeQuery) -> ValidationResult<()> {
+    // Validate query text
+    validate_query(&query.query_text, query.limit)?;
+
+    // Validate embedding if present
+    if let Some(embedding) = &query.embedding {
+        validate_embedding(&embedding.vector)?;
+    }
+
+    Ok(())
+}
+
+/// Validates a StoreRequest
+pub fn validate_store_request(request: &StoreRequest) -> ValidationResult<()> {
+    // Validate fragment if present
+    if let Some(fragment) = &request.fragment {
+        validate_fragment(fragment)?;
+    }
+
+    // Validate embedding if present
+    if let Some(embedding) = &request.embedding {
+        validate_embedding(&embedding.vector)?;
+    }
+
+    Ok(())
 }

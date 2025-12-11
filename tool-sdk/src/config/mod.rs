@@ -17,7 +17,10 @@ use once_cell::sync::Lazy;
 pub trait ConfigProvider: Send + Sync {
     /// Get a string configuration value
     fn get_string(&self, key: &str) -> Result<String>;
-    
+}
+
+/// Extension methods for configuration providers
+pub trait ConfigProviderExt: ConfigProvider {
     /// Get an integer configuration value
     fn get_int(&self, key: &str) -> Result<i64> {
         let value = self.get_string(key)?;
@@ -61,7 +64,12 @@ pub trait ConfigProvider: Send + Sync {
     fn get_bool_or(&self, key: &str, default: bool) -> bool {
         self.get_bool(key).unwrap_or(default)
     }
-    
+}
+
+impl<T: ConfigProvider> ConfigProviderExt for T {}
+
+/// Generic configuration provider trait
+pub trait GenericConfigProvider: ConfigProvider {
     /// Get a typed configuration value by parsing from string
     fn get<T>(&self, key: &str) -> Result<T>
     where
@@ -202,12 +210,12 @@ impl ConfigProvider for MemoryConfigProvider {
 
 /// A composite config provider that tries multiple providers in order
 #[derive(Debug, Clone)]
-pub struct CompositeConfigProvider {
+pub struct CompositeConfigProvider<P: ConfigProvider> {
     /// Ordered list of config providers to try
-    providers: Vec<Arc<dyn ConfigProvider>>,
+    providers: Vec<P>,
 }
 
-impl CompositeConfigProvider {
+impl<P: ConfigProvider> CompositeConfigProvider<P> {
     /// Create a new composite config provider
     pub fn new() -> Self {
         Self {
@@ -216,28 +224,17 @@ impl CompositeConfigProvider {
     }
     
     /// Add a provider to the chain
-    pub fn add_provider<P>(&mut self, provider: P)
-    where
-        P: ConfigProvider + 'static,
-    {
-        self.providers.push(Arc::new(provider));
+    pub fn add_provider(&mut self, provider: P) {
+        self.providers.push(provider);
     }
     
     /// Create a new provider with an initial list
-    pub fn with_providers<P>(providers: Vec<P>) -> Self
-    where
-        P: ConfigProvider + 'static,
-    {
-        let providers = providers
-            .into_iter()
-            .map(|p| Arc::new(p) as Arc<dyn ConfigProvider>)
-            .collect();
-        
+    pub fn with_providers(providers: Vec<P>) -> Self {
         Self { providers }
     }
 }
 
-impl ConfigProvider for CompositeConfigProvider {
+impl<P: ConfigProvider> ConfigProvider for CompositeConfigProvider<P> {
     fn get_string(&self, key: &str) -> Result<String> {
         for provider in &self.providers {
             match provider.get_string(key) {
@@ -251,7 +248,7 @@ impl ConfigProvider for CompositeConfigProvider {
 }
 
 /// Global default configuration provider
-pub static DEFAULT_PROVIDER: Lazy<Arc<dyn ConfigProvider>> = Lazy::new(|| {
+pub static DEFAULT_PROVIDER: Lazy<Arc<EnvConfigProvider>> = Lazy::new(|| {
     Arc::new(EnvConfigProvider::new().with_prefix("PHOENIX"))
 });
 
@@ -293,7 +290,7 @@ impl Default for OpenAIConfig {
 
 impl OpenAIConfig {
     /// Load configuration from a config provider
-    pub fn from_provider(provider: &dyn ConfigProvider) -> Result<Self> {
+    pub fn from_provider<P: ConfigProvider + ConfigProviderExt>(provider: &P) -> Result<Self> {
         let api_key = provider.get_string("openai_api_key")?;
         let org_id = provider.get_string("openai_org_id").ok();
         let base_url = provider.get_string_or("openai_base_url", "https://api.openai.com/v1");
@@ -358,7 +355,7 @@ impl Default for SerpAPIConfig {
 
 impl SerpAPIConfig {
     /// Load configuration from a config provider
-    pub fn from_provider(provider: &dyn ConfigProvider) -> Result<Self> {
+    pub fn from_provider<P: ConfigProvider + ConfigProviderExt>(provider: &P) -> Result<Self> {
         let api_key = provider.get_string("serpapi_api_key")?;
         let base_url = provider.get_string_or("serpapi_base_url", "https://serpapi.com");
         let default_engine = provider.get_string_or("serpapi_default_engine", "google");

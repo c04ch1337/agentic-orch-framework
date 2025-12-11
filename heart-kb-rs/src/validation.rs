@@ -1,11 +1,11 @@
 // heart-kb-rs/src/validation.rs
 // Input validation for Heart KB Service (emotion/sentiment)
 
-use crate::agi_core::{Sentiment, SentimentFact};
+use crate::agi_core::SentimentFact;
 use input_validation_rs::{
     ValidationResult,
     sanitizers::StringSanitizer,
-    validate,
+    validation::validate,
     validators::{
         numeric::NumericValidation, security::SecurityValidation, string::StringValidation,
     },
@@ -66,14 +66,18 @@ pub fn validate_key(key: &str) -> ValidationResult<String> {
 pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
     // Check length constraints
     if value.is_empty() {
-        return Err("Value cannot be empty".to_string());
+        return Err(input_validation_rs::ValidationError::InvalidFormat(
+            "Value cannot be empty".to_string()
+        ));
     }
 
     if value.len() > MAX_VALUE_LENGTH {
-        return Err(format!(
-            "Value too large: {} bytes, max allowed: {} bytes",
-            value.len(),
-            MAX_VALUE_LENGTH
+        return Err(input_validation_rs::ValidationError::TooLong(
+            format!(
+                "Value too large: {} bytes, max allowed: {} bytes",
+                value.len(),
+                MAX_VALUE_LENGTH
+            )
         ));
     }
 
@@ -103,10 +107,12 @@ pub fn validate_filters(
 
     // Check number of filters
     if filters.len() > MAX_FILTER_COUNT {
-        return Err(format!(
-            "Too many filters: {}, max allowed: {}",
-            filters.len(),
-            MAX_FILTER_COUNT
+        return Err(input_validation_rs::ValidationError::new(
+            format!(
+                "Too many filters: {}, max allowed: {}",
+                filters.len(),
+                MAX_FILTER_COUNT
+            )
         ));
     }
 
@@ -182,9 +188,11 @@ pub fn validate_source_id(source_id: &str) -> ValidationResult<String> {
 pub fn validate_sentiment(sentiment: i32) -> ValidationResult<i32> {
     // Check sentiment range (0 to 6 in the proto definition)
     if sentiment < 0 || sentiment > 6 {
-        return Err(format!(
-            "Invalid sentiment value: {}. Must be between 0 and 6",
-            sentiment
+        return Err(input_validation_rs::ValidationError::OutOfRange(
+            format!(
+                "Invalid sentiment value: {}. Must be between 0 and 6",
+                sentiment
+            )
         ));
     }
 
@@ -194,9 +202,11 @@ pub fn validate_sentiment(sentiment: i32) -> ValidationResult<i32> {
 /// Validates confidence score
 pub fn validate_confidence(confidence: f32) -> ValidationResult<f32> {
     if confidence < MIN_CONFIDENCE || confidence > MAX_CONFIDENCE {
-        return Err(format!(
-            "Invalid confidence score: {}. Must be between {} and {}",
-            confidence, MIN_CONFIDENCE, MAX_CONFIDENCE
+        return Err(input_validation_rs::ValidationError::OutOfRange(
+            format!(
+                "Invalid confidence score: {}. Must be between {} and {}",
+                confidence, MIN_CONFIDENCE, MAX_CONFIDENCE
+            )
         ));
     }
 
@@ -229,10 +239,10 @@ pub fn validate_sentiment_fact(fact: &SentimentFact) -> ValidationResult<Sentime
     let validated_confidence = validate_confidence(fact.confidence_score)?;
 
     // Validate text if present and not empty
-    let sanitized_text = if !fact.text.is_empty() {
-        validate_text(&fact.text)?
+    let sanitized_text = if !fact.raw_text.is_empty() {
+        validate_text(&fact.raw_text)?
     } else {
-        fact.text.clone()
+        fact.raw_text.clone()
     };
 
     // Create validated and sanitized fact
@@ -240,8 +250,9 @@ pub fn validate_sentiment_fact(fact: &SentimentFact) -> ValidationResult<Sentime
         source_id: sanitized_source_id,
         sentiment: validated_sentiment,
         confidence_score: validated_confidence,
-        text: sanitized_text,
+        raw_text: sanitized_text,
         timestamp: fact.timestamp, // Timestamp is just a number, no validation needed
+        metadata: fact.metadata.clone(), // Clone metadata as-is
     };
 
     Ok(validated_fact)

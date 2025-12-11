@@ -8,10 +8,11 @@ config-rs = { path = "../config-rs" }
 # Vault client
 hashicorp_vault = "2.1.0"
 # gRPC
-tonic = "0.10.2"
-prost = "0.12.1"
+tonic = "0.14.2"
+prost = "0.14.1"
+tonic-prost = "0.14.2"
 # Async
-tokio = { version = "1.34.0", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1.48.0", features = ["full"] }
 # Error handling
 thiserror = "1.0.50"
 anyhow = "1.0.75"
@@ -28,4 +29,4 @@ rand = "0.8.5"
 async-trait = "0.1.74"
 
 [build-dependencies]
-tonic-build = "0.10.2"
+tonic-prost-build = "0.14.2"

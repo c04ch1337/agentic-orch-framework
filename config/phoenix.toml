@@ -80,11 +80,10 @@ persistence_kb = 50063
 # Cognitive services
 context_manager = 50064
 reflection = 50065
-curiosity_engine = 50070
-
 # Scheduling and agents
 scheduler = 50066
-agent_registry = 50067
+agent_registry = 50070
+curiosity_engine = 50071
 # RED TEAM and BLUE TEAM have been decoupled - no longer part of core services
 
 # API Gateway
@@ -429,3 +428,60 @@ enable_emergency_resilience = true
 
 # Enable automatic recovery
 enable_auto_recovery = true
+
+# ============================================================================
+# TELEMETRY CONFIGURATION
+# ============================================================================
+[telemetry]
+# Enable telemetry collection
+enabled = true
+
+# Telemetry endpoint URL
+endpoint = "https://telemetry.phoenix-orch.example.com/api/v1/events"
+
+# Batch size for telemetry events
+batch_size = 100
+
+# Flush interval in seconds
+flush_interval_secs = 60
+
+# Enable PII redaction
+pii_redaction_enabled = true
+
+# Local cache path for telemetry data
+local_cache_path = "./data/telemetry/cache"
+
+# Maximum cache size in MB
+max_cache_size_mb = 100
+
+# ============================================================================
+# CONFIG UPDATE CONFIGURATION
+# ============================================================================
+[config_update]
+# Enable configuration updates
+enabled = true
+
+# Adapter download URL
+adapter_download_url = "https://updates.phoenix-orch.example.com/adapters"
+
+# Enable signature verification
+signature_verification_enabled = true
+
+# Public key path for signature verification
+public_key_path = "./certs/update_public_key.pem"
+
+# Update check interval in seconds (24 hours)
+update_check_interval_secs = 86400
+
+# ============================================================================
+# ACTION LEDGER CONFIGURATION
+# ============================================================================
+[action_ledger]
+# Enable action ledger
+enabled = true
+
+# Path to ledger file
+path = "./data/action-ledger/ledger.bin"
+
+# Environment variable name for encryption key
+encryption_key_env_var = "ACTION_LEDGER_KEY"

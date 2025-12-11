@@ -2,11 +2,25 @@ use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-pub mod proto {
-    tonic::include_proto!("curiosity_engine");
+pub mod agi_core {
+    tonic::include_proto!("agi_core");
 }
 
-use proto::{KnowledgeGap, ScheduledTask};
+/// Knowledge gap identified by the curiosity engine
+#[derive(Debug, Clone)]
+pub struct KnowledgeGap {
+    pub id: String,
+    pub description: String,
+    pub priority: i32,
+}
+
+/// Scheduled research task
+#[derive(Debug, Clone)]
+pub struct ScheduledTask {
+    pub id: String,
+    pub description: String,
+    pub priority: i32,
+}
 
 /// Core Curiosity Engine implementation
 pub struct CuriosityEngine {
@@ -93,5 +107,3 @@ impl Default for CuriosityEngine {
     }
 }
 
-// Re-export key types
-pub use proto::{KnowledgeGap, ScheduledTask};

@@ -181,6 +181,24 @@ impl LoggingClient {
         self.log_event(level, &message, metadata).await
     }
 
+    /// Log a constraint event when a negative constraint is stored
+    pub async fn log_constraint_event(
+        &mut self,
+        constraint: &str,
+        request_id: &str,
+    ) -> Result<String> {
+        let mut metadata = HashMap::new();
+        metadata.insert("request_id".to_string(), request_id.to_string());
+        metadata.insert("event_type".to_string(), "constraint_storage".to_string());
+
+        let message = format!(
+            "Constraint stored: \"{}\" for request {}",
+            constraint, request_id
+        );
+
+        self.log_event(LogLevel::Info, &message, metadata).await
+    }
+
     /// Check if the client is running in mock mode
     pub fn is_mock(&self) -> bool {
         self.mock_mode

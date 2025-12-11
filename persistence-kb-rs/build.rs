@@ -2,10 +2,10 @@
 // Build script for persistence-kb-rs
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_server(true)
         .build_client(false)
-        .compile(
+        .compile_protos(
             &["../.proto/agi_core.proto"],
             &["../.proto"],
         )?;

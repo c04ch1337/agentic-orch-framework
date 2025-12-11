@@ -53,6 +53,9 @@ pub struct PhoenixConfig {
     pub auth: AuthConfig,
     pub monitoring: MonitoringConfig,
     pub features: FeaturesConfig,
+    pub telemetry: TelemetryConfig,
+    pub config_update: ConfigUpdateConfig,
+    pub action_ledger: ActionLedgerConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -96,8 +99,6 @@ pub struct ServicesConfig {
     pub curiosity_engine: u16,
     pub scheduler: u16,
     pub agent_registry: u16,
-    pub red_team: u16,
-    pub blue_team: u16,
     pub api_gateway: u16,
 }
 
@@ -349,8 +350,6 @@ impl PhoenixConfig {
             "curiosity_engine" => self.services.curiosity_engine,
             "scheduler" => self.services.scheduler,
             "agent_registry" => self.services.agent_registry,
-            "red_team" => self.services.red_team,
-            "blue_team" => self.services.blue_team,
             "api_gateway" => self.services.api_gateway,
             _ => 50100, // Default port for unknown services
         };
@@ -384,8 +383,6 @@ impl PhoenixConfig {
             "curiosity_engine" => self.services.curiosity_engine,
             "scheduler" => self.services.scheduler,
             "agent_registry" => self.services.agent_registry,
-            "red_team" => self.services.red_team,
-            "blue_team" => self.services.blue_team,
             "api_gateway" => self.services.api_gateway,
             _ => 50100,
         };

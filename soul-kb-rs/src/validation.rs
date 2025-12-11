@@ -2,15 +2,18 @@
 // Input validation for Soul KB Service (ethics and values)
 
 use crate::agi_core::{CoreValue, EthicsCheckRequest, StoreValueRequest};
+use crate::validation_macros::{validate, validate_length, validate_range};
 use input_validation_rs::{
-    ValidationResult,
+    ValidationResult, ValidationError,
     sanitizers::StringSanitizer,
-    validate,
     validators::{
         numeric::NumericValidation, security::SecurityValidation, string::StringValidation,
     },
 };
 use std::collections::HashMap;
+
+// Re-export macros
+pub use crate::validation_macros::*;
 
 // Maximum allowed sizes
 const MAX_QUERY_LENGTH: usize = 2048; // 2KB for queries
@@ -29,53 +32,50 @@ const MAX_METADATA_ENTRIES: usize = 50;
 
 /// Validates a query request
 pub fn validate_query(query: &str, limit: u64) -> ValidationResult<()> {
-    // Validate the query string
-    validate!(
-        query,
+    // Validate query length
+    validate_length!(query, MAX_QUERY_LENGTH)?;
+
+    // Validate query content
+    validate!(query,
         StringValidation::not_empty(),
-        StringValidation::max_length(MAX_QUERY_LENGTH),
         SecurityValidation::no_code_injection(),
         SecurityValidation::no_sql_injection()
     )?;
 
-    // Validate the limit
-    validate!(
-        limit,
-        NumericValidation::min_value_u64(MIN_LIMIT),
-        NumericValidation::max_value_u64(MAX_LIMIT)
-    )?;
+    // Validate limit range
+    validate_range!(limit, MIN_LIMIT, MAX_LIMIT)?;
 
     Ok(())
 }
 
 /// Validates a key for retrieval or storage
 pub fn validate_key(key: &str) -> ValidationResult<String> {
-    // Validate and sanitize the key
-    validate!(
-        key,
+    // Validate key length
+    validate_length!(key, MAX_KEY_LENGTH)?;
+
+    // Validate key content
+    validate!(key,
         StringValidation::not_empty(),
-        StringValidation::max_length(MAX_KEY_LENGTH),
         StringValidation::alphanumeric_with_underscore_and_dots(),
         SecurityValidation::no_path_traversal(),
         SecurityValidation::no_code_injection()
     )?;
 
     // Sanitize for safe usage
-    let sanitized = StringSanitizer::sanitize_identifier(key);
-    Ok(sanitized)
+    Ok(StringSanitizer::sanitize_identifier(key))
 }
 
 /// Validates and sanitizes value data for storage
 pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
     // Check length constraints
     if value.is_empty() {
-        return Err(input_validation_rs::ValidationError::InvalidFormat(
+        return Err(ValidationError::InvalidFormat(
             "Value cannot be empty".to_string()
         ));
     }
 
     if value.len() > MAX_VALUE_LENGTH {
-        return Err(input_validation_rs::ValidationError::TooLong(
+        return Err(ValidationError::TooLong(
             format!(
                 "Value too large: {} bytes, max allowed: {} bytes",
                 value.len(),
@@ -86,9 +86,8 @@ pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
 
     // If it's a text value, attempt to validate it as UTF-8
     if let Ok(text) = std::str::from_utf8(value) {
-        // Validate for security issues if it's text
-        validate!(
-            text,
+        // Validate text content
+        validate!(text,
             SecurityValidation::no_code_injection(),
             SecurityValidation::no_command_injection(),
             SecurityValidation::no_script_tags()
@@ -110,7 +109,7 @@ pub fn validate_filters(
 
     // Check number of filters
     if filters.len() > MAX_FILTER_COUNT {
-        return Err(input_validation_rs::ValidationError::TooMany(
+        return Err(ValidationError::new(
             format!(
                 "Too many filters: {}, max allowed: {}",
                 filters.len(),
@@ -121,19 +120,17 @@ pub fn validate_filters(
 
     // Validate each filter key-value pair
     for (key, value) in filters {
-        // Validate key
-        validate!(
-            key,
+        // Validate key and value
+        validate_length!(key, 64)?;
+        validate_length!(value, 256)?;
+
+        validate!(key,
             StringValidation::not_empty(),
-            StringValidation::max_length(64),
             StringValidation::alphanumeric_with_underscore(),
             SecurityValidation::no_code_injection()
         )?;
 
-        // Validate value
-        validate!(
-            value,
-            StringValidation::max_length(256),
+        validate!(value,
             SecurityValidation::no_code_injection(),
             SecurityValidation::no_sql_injection(),
             SecurityValidation::no_script_tags()
@@ -214,15 +211,7 @@ pub fn validate_constraint(constraint: &str) -> ValidationResult<String> {
 
 /// Validates a priority value
 pub fn validate_priority(priority: i32) -> ValidationResult<i32> {
-    if priority < MIN_PRIORITY || priority > MAX_PRIORITY {
-        return Err(input_validation_rs::ValidationError::OutOfRange(
-            format!(
-                "Invalid priority: {}. Valid range is {} to {}",
-                priority, MIN_PRIORITY, MAX_PRIORITY
-            )
-        ));
-    }
-
+    validate_range!(priority, MIN_PRIORITY, MAX_PRIORITY)?;
     Ok(priority)
 }
 
@@ -234,7 +223,7 @@ pub fn validate_value_metadata(
 
     // Check number of entries
     if metadata.len() > MAX_METADATA_ENTRIES {
-        return Err(input_validation_rs::ValidationError::TooMany(
+        return Err(ValidationError::new(
             format!(
                 "Too many metadata entries: {}, max allowed: {}",
                 metadata.len(),
@@ -245,19 +234,18 @@ pub fn validate_value_metadata(
 
     // Validate each key-value pair
     for (key, value) in metadata {
-        // Validate key
-        validate!(
-            key,
+        // Validate lengths
+        validate_length!(key, 64)?;
+        validate_length!(value, 256)?;
+
+        // Validate content
+        validate!(key,
             StringValidation::not_empty(),
-            StringValidation::max_length(64),
             StringValidation::alphanumeric_with_underscore(),
             SecurityValidation::no_code_injection()
         )?;
 
-        // Validate value
-        validate!(
-            value,
-            StringValidation::max_length(256),
+        validate!(value,
             SecurityValidation::no_code_injection(),
             SecurityValidation::no_script_tags()
         )?;
@@ -279,9 +267,8 @@ pub fn validate_value_id(id: &str) -> ValidationResult<String> {
         return Ok(id.to_string());
     }
 
-    validate!(
-        id,
-        StringValidation::max_length(64),
+    validate_length!(id, 64)?;
+    validate!(id,
         StringValidation::alphanumeric_with_underscore_and_dots(),
         SecurityValidation::no_path_traversal(),
         SecurityValidation::no_code_injection()
@@ -331,7 +318,7 @@ pub fn validate_store_value_request(
     // Check if value is present
     let value = match &request.value {
         Some(value) => value,
-        None => return Err(input_validation_rs::ValidationError::InvalidFormat(
+        None => return Err(ValidationError::InvalidFormat(
             "Missing core value".to_string()
         )),
     };
@@ -349,10 +336,9 @@ pub fn validate_store_value_request(
 
 /// Validates an ethics check action
 pub fn validate_ethics_action(action: &str) -> ValidationResult<String> {
-    validate!(
-        action,
+    validate_length!(action, MAX_ACTION_LENGTH)?;
+    validate!(action,
         StringValidation::not_empty(),
-        StringValidation::max_length(MAX_ACTION_LENGTH),
         SecurityValidation::no_code_injection(),
         SecurityValidation::no_command_injection()
     )?;
@@ -379,14 +365,6 @@ pub fn validate_ethics_check_request(
 /// Validates a min priority filter
 pub fn validate_min_priority(min_priority: i32) -> ValidationResult<i32> {
     // 0 means no filter, 1-4 are valid priorities
-    if min_priority < 0 || min_priority > MAX_PRIORITY {
-        return Err(input_validation_rs::ValidationError::OutOfRange(
-            format!(
-                "Invalid min priority: {}. Must be between 0 and {}",
-                min_priority, MAX_PRIORITY
-            )
-        ));
-    }
-
+    validate_range!(min_priority, 0, MAX_PRIORITY)?;
     Ok(min_priority)
 }

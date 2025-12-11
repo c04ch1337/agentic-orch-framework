@@ -3,7 +3,6 @@
 
 use crate::auth::AuthManager;
 use crate::vault_client::{SecretMetadata, VaultClient, VaultError, VaultOperations};
-use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 
@@ -22,11 +21,8 @@ pub struct SecretsServiceImpl {
 }
 
 impl SecretsServiceImpl {
-    pub fn new(vault_client: VaultClient) -> Self {
-        let auth_manager = tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async { AuthManager::new().await })
-        });
-
+    pub async fn new(vault_client: VaultClient) -> Self {
+        let auth_manager = AuthManager::new().await;
         Self {
             vault_client,
             auth_manager,
@@ -134,7 +130,7 @@ impl SecretsService for SecretsServiceImpl {
             .set_secret(
                 &req.key,
                 &req.secret_value,
-                req.ttl,
+                req.ttl as u64,
                 req.metadata,
                 &req.auth_token,
             )
@@ -305,7 +301,7 @@ impl SecretsService for SecretsServiceImpl {
                 Ok(Response::new(TokenResponse {
                     success: true,
                     token: data.token,
-                    expires_at: data.expires_at as i64,
+                    expires_at: data.expires_at.try_into().unwrap_or(0),
                     granted_roles: data.roles,
                     error: String::new(),
                 }))

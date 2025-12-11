@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tonic::{Request, Response, Status, transport::Server};
+use telemetrist::{Telemetrist, ConversationLog, TelemetristConfig};
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -55,6 +56,8 @@ pub struct ContextManagerServer {
     llm_client: Arc<RwLock<Option<LLMServiceClient<tonic::transport::Channel>>>>,
     // Default context summary schema
     context_schema: Arc<RwLock<Option<ContextSummarySchema>>>,
+    // Telemetrist for conversation log collection
+    telemetrist: Arc<RwLock<Option<Arc<Telemetrist>>>>,
 }
 
 impl ContextManagerServer {
@@ -64,6 +67,23 @@ impl ContextManagerServer {
             data_router_client: Arc::new(RwLock::new(None)),
             llm_client: Arc::new(RwLock::new(None)),
             context_schema: Arc::new(RwLock::new(None)),
+            telemetrist: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Initialize the Telemetrist service
+    pub async fn init_telemetrist(&self) -> Result<(), Box<dyn std::error::Error>> {
+        match Telemetrist::new(TelemetristConfig::from_env()) {
+            Ok(telemetrist) => {
+                let mut guard = self.telemetrist.write().await;
+                *guard = Some(Arc::new(telemetrist));
+                log::info!("Telemetrist initialized successfully in Context Manager");
+                Ok(())
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize Telemetrist in Context Manager: {}", e);
+                Err(Box::new(e))
+            }
         }
     }
 
@@ -488,6 +508,31 @@ impl ContextManagerService for ContextManagerServer {
             token_count
         );
 
+        // Record conversation log for federated learning
+        if let Some(telemetrist_guard) = self.telemetrist.read().await.as_ref() {
+            let log = ConversationLog {
+                log_id: uuid::Uuid::new_v4().to_string(),
+                session_id: req.request_id.clone(),
+                user_query: req.query.clone(),
+                system_response: system_prompt.clone(),
+                metadata: {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("agent_type".to_string(), req.agent_type.clone());
+                    meta.insert("kb_sources".to_string(), kb_sources.join(","));
+                    meta.insert("tokens_used".to_string(), token_count.to_string());
+                    meta.insert("context_compiled".to_string(), (!compiled_context_json.is_empty()).to_string());
+                    meta
+                },
+                timestamp: chrono::Utc::now(),
+            };
+            let telemetrist = Arc::clone(telemetrist_guard);
+            tokio::spawn(async move {
+                if let Err(e) = telemetrist.record_conversation_log(log).await {
+                    log::warn!("Failed to record conversation log: {}", e);
+                }
+            });
+        }
+
         Ok(Response::new(reply))
     }
 
@@ -557,6 +602,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize the default context summary schema
     server.init_context_schema();
+
+    // Initialize Telemetrist (optional - continues if unavailable)
+    if let Err(e) = server.init_telemetrist().await {
+        log::warn!("Telemetrist initialization failed (optional): {}", e);
+    }
 
     // Get service addresses from environment
     let data_router_addr =

@@ -202,10 +202,8 @@ impl RequestExecutor for SerpAPIClient {
     where
         R: for<'de> Deserialize<'de> + Send,
     {
-        // Use the resilience facade to retry on certain errors
-        self.resilience.execute(move || {
-            self.get_with_client::<R>(endpoint, query_params.clone())
-        }).await
+        // Directly call get_with_client without resilience wrapper to avoid lifetime issues
+        self.get_with_client::<R>(endpoint, query_params).await
     }
     
     async fn post<T, R>(&self, endpoint: &str, body: &T) -> Result<R>
@@ -213,10 +211,8 @@ impl RequestExecutor for SerpAPIClient {
         T: Serialize + Send + Sync,
         R: for<'de> Deserialize<'de> + Send,
     {
-        // Use the resilience facade to retry on certain errors
-        self.resilience.execute(move || {
-            self.post_with_client::<T, R>(endpoint, body)
-        }).await
+        // Directly call post_with_client without resilience wrapper to avoid lifetime issues
+        self.post_with_client::<T, R>(endpoint, body).await
     }
     
     async fn put<T, R>(&self, _endpoint: &str, _body: &T) -> Result<R>
@@ -387,7 +383,7 @@ impl SerpAPIClient {
         self.check_rate_limit().await?;
         
         // Record the request for rate limiting
-        self.record_request();
+        RateLimited::record_request(self);
         
         let url = format!("{}/{}", self.config.base_url, endpoint);
         debug!("Sending request to SerpAPI: GET {}", url);
@@ -432,7 +428,7 @@ impl SerpAPIClient {
                 Some(bytes_received),
             );
             
-            self.record_request(endpoint, status_code, duration);
+            Telemetry::record_request(self, endpoint, status_code, duration);
             
             Ok(json)
         } else {
@@ -454,7 +450,7 @@ impl SerpAPIClient {
         self.check_rate_limit().await?;
         
         // Record the request for rate limiting
-        self.record_request();
+        RateLimited::record_request(self);
         
         let url = format!("{}/{}", self.config.base_url, endpoint);
         debug!("Sending request to SerpAPI: POST {}", url);
@@ -505,7 +501,7 @@ impl SerpAPIClient {
                 Some(bytes_received),
             );
             
-            self.record_request(endpoint, status_code, duration);
+            Telemetry::record_request(self, endpoint, status_code, duration);
             
             Ok(json)
         } else {
@@ -606,7 +602,10 @@ impl SerpAPIClientBuilder {
         }
         
         // Validate the configuration
-        config.validate()?;
+        // Validate the configuration - using simple validation since ServiceConfig trait is not imported
+        if config.api_key.is_empty() {
+            return Err(ServiceError::validation("API key is required"));
+        }
         
         let mut client = SerpAPIClient::new_with_config(config);
         

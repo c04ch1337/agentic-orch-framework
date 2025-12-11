@@ -35,52 +35,32 @@ pub fn map_openai_error(
             .unwrap_or("Unknown OpenAI error");
         
         // Map to appropriate error based on status code and error type
-        match status {
-            StatusCode::UNAUTHORIZED => {
-                ServiceError::authentication(message)
-            }
-            StatusCode::FORBIDDEN => {
-                ServiceError::authorization(message)
-            }
-            StatusCode::TOO_MANY_REQUESTS => {
-                ServiceError::rate_limit(message)
-            }
-            StatusCode::BAD_REQUEST => {
-                ServiceError::validation(message)
-            }
+        return match status {
+            StatusCode::UNAUTHORIZED => ServiceError::authentication(message),
+            StatusCode::FORBIDDEN => ServiceError::authorization(message),
+            StatusCode::TOO_MANY_REQUESTS => ServiceError::rate_limit(message),
+            StatusCode::BAD_REQUEST => ServiceError::validation(message),
             StatusCode::INTERNAL_SERVER_ERROR
             | StatusCode::BAD_GATEWAY
-            | StatusCode::SERVICE_UNAVAILABLE => {
-                ServiceError::service(message)
-            }
+            | StatusCode::SERVICE_UNAVAILABLE => ServiceError::service(message),
             _ => ServiceError::service(message),
-        }
+        };
     } else {
         // Fallback if we can't parse the error structure
         let message = json.get("message")
             .and_then(|m| m.as_str())
             .unwrap_or("Unknown error");
         
-        match status {
-            StatusCode::UNAUTHORIZED => {
-                ServiceError::authentication(message)
-            }
-            StatusCode::FORBIDDEN => {
-                ServiceError::authorization(message)
-            }
-            StatusCode::TOO_MANY_REQUESTS => {
-                ServiceError::rate_limit(message)
-            }
-            StatusCode::BAD_REQUEST => {
-                ServiceError::validation(message)
-            }
+        return match status {
+            StatusCode::UNAUTHORIZED => ServiceError::authentication(message),
+            StatusCode::FORBIDDEN => ServiceError::authorization(message),
+            StatusCode::TOO_MANY_REQUESTS => ServiceError::rate_limit(message),
+            StatusCode::BAD_REQUEST => ServiceError::validation(message),
             StatusCode::INTERNAL_SERVER_ERROR
             | StatusCode::BAD_GATEWAY
-            | StatusCode::SERVICE_UNAVAILABLE => {
-                ServiceError::service(message)
-            }
+            | StatusCode::SERVICE_UNAVAILABLE => ServiceError::service(message),
             _ => ServiceError::service(message),
-        }
+        };
     }
 }
 
@@ -99,22 +79,14 @@ pub fn map_serpapi_error(
         .unwrap_or("Unknown SerpAPI error");
     
     // Map to appropriate error based on status code and message
-    match status {
-        StatusCode::UNAUTHORIZED => {
-            ServiceError::authentication(error_message)
-        }
-        StatusCode::PAYMENT_REQUIRED => {
-            ServiceError::authorization("Account credits exhausted")
-                .with_context_value("details", error_message)
-        }
-        StatusCode::TOO_MANY_REQUESTS => {
-            ServiceError::rate_limit(error_message)
-        }
-        StatusCode::BAD_REQUEST => {
-            ServiceError::validation(error_message)
-        }
+    return match status {
+        StatusCode::UNAUTHORIZED => ServiceError::authentication(error_message),
+        StatusCode::PAYMENT_REQUIRED => ServiceError::authorization("Account credits exhausted")
+            .with_context_value("details", error_message),
+        StatusCode::TOO_MANY_REQUESTS => ServiceError::rate_limit(error_message),
+        StatusCode::BAD_REQUEST => ServiceError::validation(error_message),
         _ => ServiceError::service(error_message),
-    }
+    };
 }
 
 /// Map a generic HTTP error to a ServiceError
@@ -135,29 +107,17 @@ pub fn map_http_error(
                     .and_then(|m| m.as_str())
                     .unwrap_or(body);
                 
-                match status {
-                    StatusCode::UNAUTHORIZED => {
-                        ServiceError::authentication(message)
-                    }
-                    StatusCode::FORBIDDEN => {
-                        ServiceError::authorization(message)
-                    }
-                    StatusCode::TOO_MANY_REQUESTS => {
-                        ServiceError::rate_limit(message)
-                    }
-                    StatusCode::BAD_REQUEST => {
-                        ServiceError::validation(message)
-                    }
-                    StatusCode::NOT_FOUND => {
-                        ServiceError::service(format!("Resource not found: {}", message))
-                    }
+                return match status {
+                    StatusCode::UNAUTHORIZED => ServiceError::authentication(message),
+                    StatusCode::FORBIDDEN => ServiceError::authorization(message),
+                    StatusCode::TOO_MANY_REQUESTS => ServiceError::rate_limit(message),
+                    StatusCode::BAD_REQUEST => ServiceError::validation(message),
+                    StatusCode::NOT_FOUND => ServiceError::service(format!("Resource not found: {}", message)),
                     StatusCode::INTERNAL_SERVER_ERROR
                     | StatusCode::BAD_GATEWAY
-                    | StatusCode::SERVICE_UNAVAILABLE => {
-                        ServiceError::service(message)
-                    }
+                    | StatusCode::SERVICE_UNAVAILABLE => ServiceError::service(message),
                     _ => ServiceError::service(message),
-                }
+                };
             }
         }
     }
@@ -171,29 +131,17 @@ pub fn map_http_error(
         format!("{}: {}", status, body)
     };
     
-    match status {
-        StatusCode::UNAUTHORIZED => {
-            ServiceError::authentication(message)
-        }
-        StatusCode::FORBIDDEN => {
-            ServiceError::authorization(message)
-        }
-        StatusCode::TOO_MANY_REQUESTS => {
-            ServiceError::rate_limit(message)
-        }
-        StatusCode::BAD_REQUEST => {
-            ServiceError::validation(message)
-        }
-        StatusCode::NOT_FOUND => {
-            ServiceError::service(format!("Resource not found: {}", status))
-        }
+    return match status {
+        StatusCode::UNAUTHORIZED => ServiceError::authentication(message),
+        StatusCode::FORBIDDEN => ServiceError::authorization(message),
+        StatusCode::TOO_MANY_REQUESTS => ServiceError::rate_limit(message),
+        StatusCode::BAD_REQUEST => ServiceError::validation(message),
+        StatusCode::NOT_FOUND => ServiceError::service(format!("Resource not found: {}", status)),
         StatusCode::INTERNAL_SERVER_ERROR
         | StatusCode::BAD_GATEWAY
-        | StatusCode::SERVICE_UNAVAILABLE => {
-            ServiceError::service(message)
-        }
+        | StatusCode::SERVICE_UNAVAILABLE => ServiceError::service(message),
         _ => ServiceError::service(message),
-    }
+    };
 }
 
 /// Helper function to classify HTTP errors by category

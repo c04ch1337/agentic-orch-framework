@@ -31,6 +31,9 @@ members = [
     "reflection-service-rs",
     "self-improve-rs",
     "action-ledger-rs",
+    "telemetrist-rs",
+    "config-update-rs",
+    "federated-learning-rs",
 ]
 
 [profile.release]

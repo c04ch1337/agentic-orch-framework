@@ -77,10 +77,11 @@ impl BodyKnowledgeBase {
 
         // Apply limit
         results.truncate(limit as usize);
+        let count = results.len();
 
         Ok(QueryResult {
             results,
-            count: results.len(),
+            count,
             metadata,
         })
     }
@@ -150,10 +151,12 @@ impl BodyKnowledgeBase {
             .cloned()
             .unwrap_or_default();
 
+        let found = value.is_some();
+
         Ok(RetrieveResult {
             value,
             metadata,
-            found: value.is_some(),
+            found,
         })
     }
 

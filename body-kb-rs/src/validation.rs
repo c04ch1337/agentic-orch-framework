@@ -4,7 +4,7 @@
 use input_validation_rs::{
     ValidationResult,
     sanitizers::StringSanitizer,
-    validate,
+    validation::validate,
     validators::{
         numeric::NumericValidation, security::SecurityValidation, string::StringValidation,
     },
@@ -63,15 +63,17 @@ pub fn validate_key(key: &str) -> ValidationResult<String> {
 pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
     // Check length constraints
     if value.is_empty() {
-        return Err("Value cannot be empty".to_string());
+        return Err(input_validation_rs::ValidationError::TooShort(
+            "Value cannot be empty".to_string()
+        ));
     }
 
     if value.len() > MAX_VALUE_LENGTH {
-        return Err(format!(
+        return Err(input_validation_rs::ValidationError::TooLong(format!(
             "Value too large: {} bytes, max allowed: {} bytes",
             value.len(),
             MAX_VALUE_LENGTH
-        ));
+        )));
     }
 
     // If it's a text value, attempt to validate it as UTF-8
@@ -100,11 +102,11 @@ pub fn validate_filters(
 
     // Check number of filters
     if filters.len() > MAX_FILTER_COUNT {
-        return Err(format!(
+        return Err(input_validation_rs::ValidationError::new(format!(
             "Too many filters: {}, max allowed: {}",
             filters.len(),
             MAX_FILTER_COUNT
-        ));
+        )));
     }
 
     // Validate each filter key-value pair

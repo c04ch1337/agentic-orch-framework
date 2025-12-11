@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::Utc;
 use once_cell::sync::Lazy;
 use prost::Message;
 use std::collections::HashMap;
@@ -18,7 +17,7 @@ pub mod agi_core {
 use agi_core::{
     AgiState, ContextEntry, ContextSummarySchema, GetStateRequest, GetUserRequest, RawContextData,
     Request as ProtoRequest, UserIdentity, data_router_service_client::DataRouterServiceClient,
-    llm_service_client::LLMServiceClient,
+    llm_service_client::LlmServiceClient,
 };
 
 /// Core Context Manager implementation
@@ -28,7 +27,7 @@ pub struct ContextManager {
     // Client for Data Router to access KBs
     data_router_client: Arc<RwLock<Option<DataRouterServiceClient<tonic::transport::Channel>>>>,
     // Client for LLM Service to compile context
-    llm_client: Arc<RwLock<Option<LLMServiceClient<tonic::transport::Channel>>>>,
+    llm_client: Arc<RwLock<Option<LlmServiceClient<tonic::transport::Channel>>>>,
     // Default context summary schema
     context_schema: Arc<RwLock<Option<ContextSummarySchema>>>,
 }
@@ -44,7 +43,7 @@ impl ContextManager {
     }
 
     /// Initialize the default context schema
-    pub fn init_context_schema(&self) {
+    pub async fn init_context_schema(&self) {
         let schema = ContextSummarySchema {
             schema_id: "context-summary-v1".to_string(),
             field_definitions: vec![
@@ -65,7 +64,7 @@ impl ContextManager {
     /// Initialize the LLM Service client
     pub async fn init_llm_client(&self, llm_addr: String) -> Result<()> {
         tracing::info!("Connecting to LLM Service at {}", llm_addr);
-        let client = LLMServiceClient::connect(llm_addr).await?;
+        let client = LlmServiceClient::connect(llm_addr).await?;
         let mut guard = self.llm_client.write().await;
         *guard = Some(client);
         tracing::info!("Connected to LLM Service");
@@ -83,7 +82,7 @@ impl ContextManager {
     }
 
     // Helper to get LLM client
-    async fn get_llm_client(&self) -> Option<LLMServiceClient<tonic::transport::Channel>> {
+    async fn get_llm_client(&self) -> Option<LlmServiceClient<tonic::transport::Channel>> {
         self.llm_client.read().await.clone()
     }
 
@@ -156,10 +155,12 @@ impl ContextManager {
                 let inner = resp.into_inner();
                 if let Some(response) = inner.response {
                     if response.status_code == 200 {
-                        if let Ok(user_resp) =
-                            prost::Message::decode(response.payload.as_slice())
-                        {
-                            return user_resp.identity;
+                        match UserIdentity::decode(response.payload.as_slice()) {
+                            Ok(identity) => return Some(identity),
+                            Err(e) => {
+                                tracing::warn!("Failed to decode user identity: {}", e);
+                                return None;
+                            }
                         }
                     }
                 }
@@ -173,27 +174,57 @@ impl ContextManager {
     }
 
     /// Query a specific KB for relevant context
-    pub async fn query_kb(&self, kb_name: &str, query: &str) -> Vec<ContextEntry> {
-        // Return placeholder context based on KB type
-        let placeholder_content = match kb_name {
-            "mind" => "Previous conversation context available.",
-            "soul" => "Core values: integrity, security, efficiency.",
-            "body" => "System status: operational.",
-            "heart" => "Emotional context: neutral.",
-            "social" => "No recent social interactions.",
-            _ => return Vec::new(),
+    pub async fn query_kb(&self, kb_name: &str, query: &str) -> Result<Vec<ContextEntry>> {
+        let mut client = match self.get_data_router_client().await {
+            Some(client) => client,
+            None => {
+                tracing::warn!("Data router client not initialized");
+                return Ok(Vec::new());
+            }
         };
 
-        vec![ContextEntry {
-            source_kb: kb_name.to_string(),
-            content: placeholder_content.to_string(),
-            relevance_score: 0.8,
-            timestamp: Utc::now().timestamp(),
-        }]
+        let route_req = agi_core::RouteRequest {
+            target_service: format!("{}-kb", kb_name),
+            request: Some(ProtoRequest {
+                id: uuid::Uuid::new_v4().to_string(),
+                service: format!("{}-kb", kb_name),
+                method: "Query".to_string(),
+                payload: query.as_bytes().to_vec(),
+                metadata: HashMap::new(),
+            }),
+        };
+
+        match client.route(tonic::Request::new(route_req)).await {
+            Ok(resp) => {
+                let inner = resp.into_inner();
+                if let Some(response) = inner.response {
+                    if response.status_code == 200 {
+                        // Decode each entry individually since Vec<T> doesn't implement Message
+                        let mut entries = Vec::new();
+                        let mut buf = response.payload.as_slice();
+                        while !buf.is_empty() {
+                            match ContextEntry::decode(&mut buf) {
+                                Ok(entry) => entries.push(entry),
+                                Err(e) => {
+                                    tracing::warn!("Failed to decode context entry: {}", e);
+                                    break;
+                                }
+                            }
+                        }
+                        return Ok(entries);
+                    }
+                }
+                Ok(Vec::new())
+            }
+            Err(e) => {
+                tracing::warn!("Failed to query KB {}: {}", kb_name, e);
+                Ok(Vec::new())
+            }
+        }
     }
 
     /// Build system prompt based on agent type and compiled context
-    pub fn build_system_prompt(
+    pub async fn build_system_prompt(
         &self,
         agent_type: &str,
         compiled_context_json: &str,
@@ -249,6 +280,13 @@ impl ContextManager {
         context_entries: &[ContextEntry],
         query: &str,
     ) -> Result<String> {
+        // Validate inputs
+        if request_id.is_empty() {
+            return Err(anyhow::anyhow!("request_id cannot be empty"));
+        }
+        if context_entries.is_empty() {
+            return Err(anyhow::anyhow!("context_entries cannot be empty"));
+        }
         let mut llm_client = match self.get_llm_client().await {
             Some(client) => client,
             None => {

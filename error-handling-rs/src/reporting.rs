@@ -58,10 +58,11 @@ impl Default for ReporterConfig {
             rate_limit: 50,
             auth_token: None,
             tags: std::collections::HashMap::new(),
-            }
         }
-    
-    impl TryFrom&lt;config::Config&gt; for ReporterConfig {
+    }
+}
+
+impl TryFrom<config::Config> for ReporterConfig {
     type Error = config::ConfigError;
 
     fn try_from(cfg: config::Config) -&gt; std::result::Result&lt;Self, Self::Error&gt; {

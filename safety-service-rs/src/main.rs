@@ -10,7 +10,6 @@ use std::env;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::Instant;
 use tonic::{Request, Response, Status, transport::Server};
 
@@ -418,7 +417,11 @@ impl SafetyService for SafetyServer {
                     // Check for validation errors
                     if let Err(e) = validation::validate_content(&sanitized_payload, None) {
                         log::warn!("Validation error in request {}: {}", request_id, e);
-                        return (false, 8, format!("Input validation failed: {}", e));
+                        return Ok(Response::new(ValidationResponse {
+                            approved: false,
+                            risk_level: 8,
+                            reason: format!("Input validation failed: {}", e),
+                        }));
                     }
                 }
 

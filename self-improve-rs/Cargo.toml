@@ -20,6 +20,7 @@ chrono = { version = "0.4.31", features = ["serde"] }
 metrics = "0.20"
 config-rs = { path = "../config-rs" }
 async-trait = "0.1"
+config_update = { path = "../config-update-rs", package = "config-update-rs" }
 
 [dev-dependencies]
 tokio-test = "0.4"

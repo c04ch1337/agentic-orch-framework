@@ -14,6 +14,9 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status, transport::Server};
+use action_ledger::{ActionLedger, ActionPlanStep, ActionOutcome, ActionOutcomeStatus};
+use self_improve::{SelfImprover, SelfImproveConfig, CriticalFailure};
+use telemetrist::{Telemetrist, ExecutionTrace, TelemetristConfig};
 
 // Track service start time for uptime reporting
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
@@ -126,36 +129,63 @@ struct CriticalFailureLog {
     metadata: std::collections::HashMap<String, String>,
 }
 
-fn log_critical_failure_and_build_response(
-    err: OrchestrationError,
-    req_data: &ProtoRequest,
-    current_tool_name: Option<String>,
-) -> Result<Response<AgiResponse>, Status> {
-    let log_event = CriticalFailureLog {
-        event_type: "CRITICAL_FAILURE".to_string(),
-        service: "orchestrator-service".to_string(),
-        stage: format!("{:?}", err.stage),
-        request_id: req_data.id.clone(),
-        phoenix_session_id: req_data.id.clone(),
-        target_service: err.target_service.clone(),
-        error_type: err.error_type.clone(),
-        error_message: err.error_message.clone(),
-        retryable: err.retryable,
-        tool_name: current_tool_name.clone(),
-        metadata: req_data.metadata.clone(),
-    };
+impl OrchestratorServer {
+    async fn log_critical_failure_and_build_response(
+        &self,
+        err: OrchestrationError,
+        req_data: &ProtoRequest,
+        current_tool_name: Option<String>,
+    ) -> Result<Response<AgiResponse>, Status> {
+        let log_event = CriticalFailureLog {
+            event_type: "CRITICAL_FAILURE".to_string(),
+            service: "orchestrator-service".to_string(),
+            stage: format!("{:?}", err.stage),
+            request_id: req_data.id.clone(),
+            phoenix_session_id: req_data.id.clone(),
+            target_service: err.target_service.clone(),
+            error_type: err.error_type.clone(),
+            error_message: err.error_message.clone(),
+            retryable: err.retryable,
+            tool_name: current_tool_name.clone(),
+            metadata: req_data.metadata.clone(),
+        };
 
-    if let Ok(json) = serde_json::to_string(&log_event) {
-        log::error!("{}", json);
-    } else {
-        log::error!(
-            "CRITICAL_FAILURE: stage={:?}, target_service={}, error_type={}, error_message={}",
-            err.stage,
-            err.target_service,
-            err.error_type,
-            err.error_message
-        );
-    }
+        if let Ok(json) = serde_json::to_string(&log_event) {
+            log::error!("{}", json);
+        } else {
+            log::error!(
+                "CRITICAL_FAILURE: stage={:?}, target_service={}, error_type={}, error_message={}",
+                err.stage,
+                err.target_service,
+                err.error_type,
+                err.error_message
+            );
+        }
+
+        // Forward to self-improvement engine
+        if let Some(improver_guard) = self.self_improver.lock().await.as_ref() {
+            let failure = CriticalFailure::from_orchestrator_failure(
+                req_data.id.clone(),
+                format!("{:?}", err.stage),
+                Some(err.error_message.clone()),
+                {
+                    let mut meta = req_data.metadata.clone();
+                    meta.insert("target_service".to_string(), err.target_service.clone());
+                    meta.insert("error_type".to_string(), err.error_type.clone());
+                    meta.insert("retryable".to_string(), err.retryable.to_string());
+                    if let Some(tool) = &current_tool_name {
+                        meta.insert("tool_name".to_string(), tool.clone());
+                    }
+                    meta
+                },
+            );
+            let improver = std::sync::Arc::clone(improver_guard);
+            tokio::spawn(async move {
+                if let Err(e) = improver.process_failure(failure).await {
+                    log::warn!("Self-improvement engine failed to process failure: {}", e);
+                }
+            });
+        }
 
     let stage_str = format!("{:?}", err.stage);
 
@@ -246,14 +276,19 @@ pub struct OrchestratorServer {
     // Client stub for Context Manager Service
     context_manager_client:
         Arc<Mutex<Option<ContextManagerServiceClient<tonic::transport::Channel>>>>,
+    // Action Ledger for audit trail
+    action_ledger: Arc<Mutex<Option<ActionLedger>>>,
+    // Self-Improvement Engine for failure learning
+    self_improver: Arc<Mutex<Option<Arc<SelfImprover>>>>,
+    // Telemetrist for execution trace collection
+    telemetrist: Arc<Mutex<Option<Arc<Telemetrist>>>>,
 }
 
-// Import Log Analyzer client
+// Import Log Analyzer client with proper error handling
 pub mod log_analyzer {
+    #[allow(warnings)]
     tonic::include_proto!("log_analyzer");
 }
-// Note: ExecutionLog struct might be defined in log_analyzer module
-// If not available, we'll skip log analyzer integration for now
 
 impl OrchestratorServer {
     /// Create a new OrchestratorServer instance
@@ -263,6 +298,58 @@ impl OrchestratorServer {
             reflection_client: Arc::new(Mutex::new(None)),
             agent_registry_client: Arc::new(Mutex::new(None)),
             context_manager_client: Arc::new(Mutex::new(None)),
+            action_ledger: Arc::new(Mutex::new(None)),
+            self_improver: Arc::new(Mutex::new(None)),
+            telemetrist: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Initialize the Telemetrist service
+    pub async fn init_telemetrist(&self) -> Result<(), Box<dyn std::error::Error>> {
+        match Telemetrist::new(TelemetristConfig::from_env()) {
+            Ok(telemetrist) => {
+                let mut guard = self.telemetrist.lock().await;
+                *guard = Some(Arc::new(telemetrist));
+                log::info!("Telemetrist initialized successfully");
+                Ok(())
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize Telemetrist: {}", e);
+                Err(Box::new(e))
+            }
+        }
+    }
+
+    /// Initialize the Action Ledger
+    pub async fn init_action_ledger(&self) -> Result<(), Box<dyn std::error::Error>> {
+        match ActionLedger::new_default() {
+            Ok(ledger) => {
+                let mut guard = self.action_ledger.lock().await;
+                *guard = Some(ledger);
+                log::info!("Action Ledger initialized successfully");
+                Ok(())
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize Action Ledger: {}", e);
+                Err(Box::new(e))
+            }
+        }
+    }
+
+    /// Initialize the Self-Improvement Engine
+    pub async fn init_self_improver(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let cfg = SelfImproveConfig::from_env();
+        match SelfImprover::new(cfg) {
+            Ok(improver) => {
+                let mut guard = self.self_improver.lock().await;
+                *guard = Some(Arc::new(improver));
+                log::info!("Self-Improvement Engine initialized successfully");
+                Ok(())
+            }
+            Err(e) => {
+                log::warn!("Failed to initialize Self-Improvement Engine: {}", e);
+                Err(Box::new(e))
+            }
         }
     }
 
@@ -440,7 +527,7 @@ impl OrchestratorServer {
                         }
                     }
 
-                    log::warning!("No verified agent found with capability: {}", capability);
+                    log::warn!("No verified agent found with capability: {}", capability);
                     Ok(None)
                 }
                 Ok(Err(e)) => {
@@ -538,6 +625,7 @@ impl OrchestratorService for OrchestratorServer {
         &self,
         request: Request<ProtoRequest>,
     ) -> Result<Response<AgiResponse>, Status> {
+        let request_start_time = std::time::Instant::now();
         let req_data = request.into_inner();
 
         log::info!(
@@ -637,7 +725,7 @@ impl OrchestratorService for OrchestratorServer {
             Err(status) => {
                 let err =
                     classify_status_error(OrchestrationStage::Planning, "llm-service", &status);
-                return log_critical_failure_and_build_response(err, &req_data, None);
+                return self.log_critical_failure_and_build_response(err, &req_data, None).await;
             }
         };
 
@@ -678,7 +766,8 @@ impl OrchestratorService for OrchestratorServer {
             context: String::new(),
         };
 
-        let ethics_payload = prost::Message::encode_to_vec(&ethics_req);
+        let ethics_payload = prost::Message::encode_to_vec(&ethics_req)
+            .map_err(|e| Status::internal(format!("Failed to encode EthicsCheckRequest: {}", e)))?;
 
         let ethics_route_req = RouteRequest {
             target_service: "soul-kb".to_string(),
@@ -767,7 +856,7 @@ impl OrchestratorService for OrchestratorServer {
             Err(status) => {
                 let err =
                     classify_status_error(OrchestrationStage::Safety, "safety-service", &status);
-                return log_critical_failure_and_build_response(err, &req_data, None);
+                return self.log_critical_failure_and_build_response(err, &req_data, None).await;
             }
         };
 
@@ -816,6 +905,24 @@ impl OrchestratorService for OrchestratorServer {
                     parameters.insert("step_description".to_string(), step.description.clone());
                     parameters.insert("request_id".to_string(), req_data.id.clone());
 
+                    // Log pre-execution to action ledger
+                    let ledger_entry_id = {
+                        if let Some(ledger_guard) = self.action_ledger.lock().await.as_ref() {
+                            let action_step = ActionPlanStep {
+                                request_id: Some(req_data.id.clone()),
+                                actor: "orchestrator".to_string(),
+                                tool_or_action_name: tool_name.clone(),
+                                parameters_json: serde_json::to_string(&parameters).unwrap_or_default(),
+                                user_query_snapshot: Some(user_query.clone()),
+                                critical: true,
+                                metadata: req_data.metadata.clone(),
+                            };
+                            ledger_guard.commit_pre_execution(action_step).ok()
+                        } else {
+                            None
+                        }
+                    };
+
                     let tool_request = ToolRequest {
                         tool_name: tool_name.clone(),
                         parameters,
@@ -846,24 +953,66 @@ impl OrchestratorService for OrchestratorServer {
                         request: Some(tool_proto_request),
                     };
 
+                    // Record execution trace start
+                    let trace_start = std::time::Instant::now();
+
                     let tool_route_response = router_client
                         .route(tonic::Request::new(route_request))
                         .await;
 
+                    // Record execution trace
+                    let trace_duration = trace_start.elapsed().as_millis() as u64;
+                    if let Some(telemetrist_guard) = self.telemetrist.lock().await.as_ref() {
+                        let trace = ExecutionTrace {
+                            trace_id: uuid::Uuid::new_v4().to_string(),
+                            request_id: req_data.id.clone(),
+                            service: "tools-service".to_string(),
+                            method: "ExecuteTool".to_string(),
+                            duration_ms: trace_duration,
+                            success: tool_route_response.is_ok(),
+                            error: tool_route_response.as_ref().err().map(|e| e.message().to_string()),
+                            metadata: {
+                                let mut meta = std::collections::HashMap::new();
+                                meta.insert("tool_name".to_string(), tool_name.clone());
+                                meta.insert("step_id".to_string(), step.id.clone());
+                                meta
+                            },
+                            timestamp: chrono::Utc::now(),
+                        };
+                        let telemetrist = Arc::clone(telemetrist_guard);
+                        tokio::spawn(async move {
+                            if let Err(e) = telemetrist.record_execution_trace(trace).await {
+                                log::warn!("Failed to record execution trace: {}", e);
+                            }
+                        });
+                    }
+
                     let tool_route_response = match tool_route_response {
                         Ok(resp) => resp,
                         Err(status) => {
+                            // Log post-execution failure to action ledger
+                            if let (Some(ledger_guard), Some(entry_id)) = (self.action_ledger.lock().await.as_ref(), ledger_entry_id) {
+                                let outcome = ActionOutcome {
+                                    status: ActionOutcomeStatus::Failed,
+                                    result_summary: None,
+                                    error_summary: Some(status.message().to_string()),
+                                    metadata: std::collections::HashMap::new(),
+                                    timestamp: chrono::Utc::now(),
+                                };
+                                let _ = ledger_guard.commit_post_execution(entry_id, outcome);
+                            }
+
                             let err = classify_status_error(
                                 OrchestrationStage::ToolsExecution,
                                 "tools-service",
                                 &status,
                             );
                             let current_tool_name = Some(tool_name.clone());
-                            return log_critical_failure_and_build_response(
+                            return self.log_critical_failure_and_build_response(
                                 err,
                                 &req_data,
                                 current_tool_name,
-                            );
+                            ).await;
                         }
                     };
 
@@ -876,6 +1025,18 @@ impl OrchestratorService for OrchestratorServer {
                         ToolResponse::decode(response.payload.as_slice()).map_err(|e| {
                             Status::internal(format!("Failed to decode ToolResponse: {}", e))
                         })?;
+
+                    // Log post-execution success to action ledger
+                    if let (Some(ledger_guard), Some(entry_id)) = (self.action_ledger.lock().await.as_ref(), ledger_entry_id) {
+                        let outcome = ActionOutcome {
+                            status: ActionOutcomeStatus::Success,
+                            result_summary: Some(tool_response.result.clone()),
+                            error_summary: if tool_response.success { None } else { Some(tool_response.error) },
+                            metadata: std::collections::HashMap::new(),
+                            timestamp: chrono::Utc::now(),
+                        };
+                        let _ = ledger_guard.commit_post_execution(entry_id, outcome);
+                    }
 
                     exec_ctx.tool_results.push(format!(
                         "Step {} (tools: {}): success ({}).",
@@ -994,7 +1155,7 @@ impl OrchestratorService for OrchestratorServer {
             Err(status) => {
                 let err =
                     classify_status_error(OrchestrationStage::Execution, &target_service, &status);
-                return log_critical_failure_and_build_response(err, &req_data, None);
+                return self.log_critical_failure_and_build_response(err, &req_data, None).await;
             }
         };
 
@@ -1005,6 +1166,35 @@ impl OrchestratorService for OrchestratorServer {
         let final_answer;
         let execution_plan_details;
         let routed_service = execution_data.routed_to.clone();
+
+        // Record overall request execution trace
+        let overall_trace_start = std::time::Instant::now();
+        let overall_duration = overall_trace_start.elapsed().as_millis() as u64;
+        if let Some(telemetrist_guard) = self.telemetrist.lock().await.as_ref() {
+            let trace = ExecutionTrace {
+                trace_id: uuid::Uuid::new_v4().to_string(),
+                request_id: req_data.id.clone(),
+                service: "orchestrator".to_string(),
+                method: "PlanAndExecute".to_string(),
+                duration_ms: overall_duration,
+                success: true,
+                error: None,
+                metadata: {
+                    let mut meta = std::collections::HashMap::new();
+                    meta.insert("target_service".to_string(), target_service.clone());
+                    meta.insert("plan_parsed".to_string(), parsed_plan.is_some().to_string());
+                    meta.insert("tool_preference".to_string(), tool_preference.clone());
+                    meta
+                },
+                timestamp: chrono::Utc::now(),
+            };
+            let telemetrist = Arc::clone(telemetrist_guard);
+            tokio::spawn(async move {
+                if let Err(e) = telemetrist.record_execution_trace(trace).await {
+                    log::warn!("Failed to record overall execution trace: {}", e);
+                }
+            });
+        }
 
         if let Some(exec_resp) = execution_data.response {
             log::info!("Execution complete. Response ID: {}", exec_resp.id);
@@ -1138,7 +1328,7 @@ impl OrchestratorService for OrchestratorServer {
                 }
                 Ok(None) => {
                     // No verified agent available with this capability
-                    log::warning!(
+                    log::warn!(
                         "No verified agent available with capability: {}",
                         capability
                     );
@@ -1297,6 +1487,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "Agent Registry Service client initialized: {}",
             registry_addr
         );
+    }
+
+    // Initialize Context Manager Service client
+    let context_manager_addr = config_rs::get_client_address("CONTEXT_MANAGER", 50056, None);
+
+    if let Err(e) = orchestrator_server
+        .init_context_manager_client(context_manager_addr.clone())
+        .await
+    {
+        log::warn!(
+            "Context Manager client init failed: {}. Health will report degraded.",
+            e
+        );
+    } else {
+        log::info!("Context Manager client initialized: {}", context_manager_addr);
+    }
+
+    // Initialize Action Ledger (optional - continues if unavailable)
+    if let Err(e) = orchestrator_server.init_action_ledger().await {
+        log::warn!("Action Ledger initialization failed (optional): {}", e);
+    }
+
+    // Initialize Self-Improvement Engine (optional - continues if unavailable)
+    if let Err(e) = orchestrator_server.init_self_improver().await {
+        log::warn!("Self-Improvement Engine initialization failed (optional): {}", e);
     }
 
     // Initialize Context Manager Service client
