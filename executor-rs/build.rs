@@ -2,6 +2,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Tell Cargo that if the .proto file changes, to rerun this build script.
     println!("cargo:rerun-if-changed=../.proto/agi_core.proto");
 
+    // Set PROTOC path using vendored protoc
+    unsafe {
+        std::env::set_var("PROTOC", protoc_bin_vendored::protoc_bin_path().unwrap());
+    }
+
     // Configure and compile proto files
     tonic_prost_build::configure()
         .build_server(true)

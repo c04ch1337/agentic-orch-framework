@@ -42,18 +42,18 @@ use agi_core::{
     context_manager_service_server::{ContextManagerService, ContextManagerServiceServer},
     data_router_service_client::DataRouterServiceClient,
     health_service_server::{HealthService, HealthServiceServer},
-    llm_service_client::LLMServiceClient,
+    llm_service_client::LlmServiceClient,
 };
 
 // Context Manager Server - with addition of LLM context compilation
-#[derive(Debug)]
+// Note: Telemetrist doesn't implement Debug, so we can't derive Debug for this struct
 pub struct ContextManagerServer {
     // Recent context cache for compaction
     context_cache: Arc<RwLock<Vec<ContextEntry>>>,
     // Client for Data Router to access KBs
     data_router_client: Arc<RwLock<Option<DataRouterServiceClient<tonic::transport::Channel>>>>,
     // Client for LLM Service to compile context
-    llm_client: Arc<RwLock<Option<LLMServiceClient<tonic::transport::Channel>>>>,
+    llm_client: Arc<RwLock<Option<LlmServiceClient<tonic::transport::Channel>>>>,
     // Default context summary schema
     context_schema: Arc<RwLock<Option<ContextSummarySchema>>>,
     // Telemetrist for conversation log collection
@@ -88,7 +88,7 @@ impl ContextManagerServer {
     }
 
     /// Initialize the default context schema
-    pub fn init_context_schema(&self) {
+    pub async fn init_context_schema(&self) {
         let schema = ContextSummarySchema {
             schema_id: "context-summary-v1".to_string(),
             field_definitions: vec![
@@ -101,7 +101,7 @@ impl ContextManagerServer {
             schema_description: "Structured context summary for AGI system prompt".to_string(),
         };
 
-        let mut guard = self.context_schema.write().unwrap();
+        let mut guard = self.context_schema.write().await;
         *guard = Some(schema);
         log::info!("Initialized default context summary schema");
     }
@@ -112,7 +112,7 @@ impl ContextManagerServer {
         llm_addr: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         log::info!("Connecting to LLM Service at {}", llm_addr);
-        let client = LLMServiceClient::connect(llm_addr).await?;
+        let client = LlmServiceClient::connect(llm_addr).await?;
         let mut guard = self.llm_client.write().await;
         *guard = Some(client);
         log::info!("Connected to LLM Service");
@@ -120,7 +120,7 @@ impl ContextManagerServer {
     }
 
     // Helper to get LLM client
-    async fn get_llm_client(&self) -> Option<LLMServiceClient<tonic::transport::Channel>> {
+    async fn get_llm_client(&self) -> Option<LlmServiceClient<tonic::transport::Channel>> {
         self.llm_client.read().await.clone()
     }
 
@@ -312,7 +312,7 @@ impl ContextManagerServer {
         };
 
         // Get context schema
-        let schema = match self.context_schema.read().unwrap().clone() {
+        let schema = match self.context_schema.read().await.clone() {
             Some(schema) => schema,
             None => {
                 log::warn!("Context schema not initialized");
@@ -382,6 +382,11 @@ impl ContextManagerService for ContextManagerServer {
             req.query,
             req.agent_type
         );
+
+        // Clone values needed for logging before any moves
+        let request_id_for_log = req.request_id.clone();
+        let query_for_log = req.query.clone();
+        let agent_type_for_log = req.agent_type.clone();
 
         // STEP 1: RETRIEVAL - Fetch Cognitive State and KB Context
         // Get user sentiment and identity information
@@ -463,6 +468,9 @@ impl ContextManagerService for ContextManagerServer {
             &identity_info,
         );
 
+        // Clone system_prompt for logging before moving into reply
+        let system_prompt_for_log = system_prompt.clone();
+
         // Cache recent context
         {
             let mut cache = self.context_cache.write().await;
@@ -512,12 +520,12 @@ impl ContextManagerService for ContextManagerServer {
         if let Some(telemetrist_guard) = self.telemetrist.read().await.as_ref() {
             let log = ConversationLog {
                 log_id: uuid::Uuid::new_v4().to_string(),
-                session_id: req.request_id.clone(),
-                user_query: req.query.clone(),
-                system_response: system_prompt.clone(),
+                session_id: request_id_for_log,
+                user_query: query_for_log,
+                system_response: system_prompt_for_log,
                 metadata: {
                     let mut meta = std::collections::HashMap::new();
-                    meta.insert("agent_type".to_string(), req.agent_type.clone());
+                    meta.insert("agent_type".to_string(), agent_type_for_log);
                     meta.insert("kb_sources".to_string(), kb_sources.join(","));
                     meta.insert("tokens_used".to_string(), token_count.to_string());
                     meta.insert("context_compiled".to_string(), (!compiled_context_json.is_empty()).to_string());
@@ -601,7 +609,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server = Arc::new(ContextManagerServer::new());
 
     // Initialize the default context summary schema
-    server.init_context_schema();
+    server.init_context_schema().await;
 
     // Initialize Telemetrist (optional - continues if unavailable)
     if let Err(e) = server.init_telemetrist().await {

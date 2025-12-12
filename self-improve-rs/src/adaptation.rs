@@ -108,7 +108,8 @@ impl AdaptationEngine for LoggingAdaptationEngine {
                             if !adapters.is_empty() {
                                 // Download the first available adapter (in production, use smarter selection)
                                 let adapter = &adapters[0];
-                                let adapter_path = Path::new(&format!("./adapters/{}.bin", adapter.adapter_id));
+                                let adapter_path_str = format!("./adapters/{}.bin", adapter.adapter_id);
+                                let adapter_path = Path::new(&adapter_path_str);
                                 
                                 if let Err(e) = update_service.download_adapter(adapter, adapter_path).await {
                                     tracing::warn!("Failed to download adapter: {}", e);

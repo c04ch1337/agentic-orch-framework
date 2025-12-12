@@ -3,12 +3,20 @@
 
 mod execution_logic;
 mod windows_executor;
+mod config;
+mod monitoring;
+mod performance;
+mod security;
 
 pub use execution_logic::{
     execute_python_sandboxed, execute_shell_command, get_execution_stats, simulate_input,
 };
 
-pub use windows_executor::{execute_with_windows_control, validate_path, JobObjectManager};
+pub use windows_executor::{execute_with_windows_control, validate_path, JobObjectManager, check_sandbox_integrity};
+pub use config::{get_config, update_config, subscribe_to_changes, check_config_health};
+pub use monitoring::{init_monitoring, get_monitoring_stats, get_health_status, start_execution_monitoring};
+pub use performance::{init_performance_optimizer, validate_performance, get_performance_stats};
+pub use security::{init_security_manager, validate_command_security, get_security_stats};
 
 use once_cell::sync::Lazy;
 use std::collections::HashMap;

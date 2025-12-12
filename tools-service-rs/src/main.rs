@@ -14,10 +14,10 @@ use tonic::{transport::Server, Request, Response, Status};
 
 // Import the tool-sdk for API client management
 use tool_sdk::{
-    config::{CompositeConfigProvider, ConfigProvider, EnvConfigProvider, ServiceConfig},
+    config::{CompositeConfigProvider, ConfigProvider, EnvConfigProvider, SerpAPIConfig},
     serpapi::SerpAPIClient,
-    serpapi::SerpAPIConfig,
-    CircuitBreakerConfig, Resilience, RetryConfig,
+    resilience::{CircuitBreakerConfig, RetryConfig},
+    ServiceClient, Telemetry,
 };
 
 // Import our validation module (used by tool_manager and tools)
@@ -41,7 +41,6 @@ use agi_core::{
 };
 
 // Define the Tools Server Structure
-#[derive(Debug)]
 pub struct ToolsServer {
     // SDK API clients
     serpapi_client: SerpAPIClient,
@@ -298,7 +297,7 @@ impl HealthService for ToolsServer {
         dependencies.insert("serpapi".to_string(), serpapi_status);
 
         // Check for telemetry metrics
-        if let Some(serpapi_metrics) = self.serpapi_client.metrics() {
+        if let Some(serpapi_metrics) = ServiceClient::metrics(&self.serpapi_client) {
             // Add key metrics to dependencies
             if let Some(req_count) = serpapi_metrics.get("request_count") {
                 dependencies.insert("serpapi_requests".to_string(), req_count.clone());

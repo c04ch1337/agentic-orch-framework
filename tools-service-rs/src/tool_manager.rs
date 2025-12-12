@@ -103,7 +103,7 @@ pub enum ToolManagerError {
     SerializationError(String),
 
     #[error("SDK service error: {0}")]
-    ServiceError(#[from] tool_sdk::error::ServiceError),
+    ServiceError(String),
 }
 
 impl From<tool_sdk::error::ServiceError> for ToolManagerError {
@@ -147,6 +147,15 @@ impl From<tool_sdk::error::ServiceError> for ToolManagerError {
             }
             tool_sdk::error::ServiceError::Unknown(msg) => {
                 ToolManagerError::ExecutionError(format!("Unknown error: {}", msg))
+            }
+            tool_sdk::error::ServiceError::Service(msg) => {
+                ToolManagerError::ExecutionError(format!("Service error: {}", msg))
+            }
+            tool_sdk::error::ServiceError::Internal(msg) => {
+                ToolManagerError::ExecutionError(format!("Internal error: {}", msg))
+            }
+            tool_sdk::error::ServiceError::WithContext { inner, .. } => {
+                ToolManagerError::from(*inner)
             }
         }
     }

@@ -10,6 +10,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use tonic::{Request, Response, Status, transport::Server};
 
+// Macros used by [`validation`](soul-kb-rs/src/validation.rs:1)
+#[macro_use]
+mod validation_macros;
+
 // Import validation module
 mod validation;
 use validation::{

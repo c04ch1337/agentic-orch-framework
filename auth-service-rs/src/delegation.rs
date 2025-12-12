@@ -19,7 +19,7 @@ use once_cell::sync::Lazy;
 
 use crate::jwt::{TokenManager, Claims};
 use crate::audit;
-use crate::storage::{StorageBackend, Entity};
+use crate::storage::{StorageBackend, StorageBackendExt, Entity};
 
 // Global delegator instance
 static TOKEN_DELEGATOR: Lazy<RwLock<Option<Arc<TokenDelegator>>>> = Lazy::new(|| {

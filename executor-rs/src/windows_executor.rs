@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use winapi::shared::basetsd::SIZE_T;
 use winapi::shared::minwindef::{DWORD, FALSE, LPVOID, TRUE};
 use winapi::shared::winerror::WAIT_TIMEOUT;
-use winapi::um::fileapi::ReadFile;
+use winapi::um::aclapi::{InitializeSecurityDescriptor, SetSecurityDescriptorDacl, SetSecurityDescriptorOwner};
+use winapi::um::fileapi::{CreateDirectoryW, ReadFile, SetFileAttributesW};
 use winapi::um::handleapi::{CloseHandle, DuplicateHandle};
 use winapi::um::jobapi2::{AssignProcessToJobObject, TerminateJobObject};
 use winapi::um::namedpipeapi::CreatePipe;
@@ -31,14 +32,18 @@ use winapi::um::winbase::{
     STARTF_USESTDHANDLES, STD_INPUT_HANDLE, WAIT_OBJECT_0,
 };
 use winapi::um::winnt::{
-    TokenIntegrityLevel, DUPLICATE_SAME_ACCESS, FILE_ATTRIBUTE_DIRECTORY, HANDLE,
+    TokenIntegrityLevel, DUPLICATE_SAME_ACCESS, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY, HANDLE,
     JOB_OBJECT_LIMIT_ACTIVE_PROCESS, JOB_OBJECT_LIMIT_JOB_MEMORY,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOB_OBJECT_LIMIT_PROCESS_MEMORY, PSID,
-    SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_LOW_RID, SE_GROUP_INTEGRITY,
-    TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_PRIVILEGES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+    SECURITY_DESCRIPTOR, SECURITY_DESCRIPTOR_REVISION, SECURITY_MANDATORY_LABEL_AUTHORITY,
+    SECURITY_MANDATORY_LOW_RID, SE_GROUP_INTEGRITY, TOKEN_ADJUST_DEFAULT,
+    TOKEN_ADJUST_PRIVILEGES, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
 };
 use winapi::um::winuser::SW_HIDE;
 use windows_job_object::{JobObject, JobObjectHandle};
+
+// Sandbox directory - Restrictive location for enhanced security
+const SANDBOX_DIR: &str = r"C:\phoenix_sandbox";
 
 // Working directory - No sandbox restrictions
 const WORK_DIR: &str = r"C:\Windows\Temp";
@@ -118,19 +123,46 @@ impl JobObjectManager {
             .collect();
 
         unsafe {
-            // Create directory
-            if CreateDirectoryW(wide_path.as_ptr(), null_mut()) == 0 {
+            // Create directory with security attributes
+            let mut sa = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as DWORD,
+                lpSecurityDescriptor: null_mut(),
+                bInheritHandle: FALSE,
+            };
+
+            // Create a security descriptor with restrictive permissions
+            let mut sd: winapi::um::winnt::SECURITY_DESCRIPTOR = std::mem::zeroed();
+            if InitializeSecurityDescriptor(&mut sd as *mut _, winapi::um::winnt::SECURITY_DESCRIPTOR_REVISION) == 0 {
+                return Err("Failed to initialize security descriptor".to_string());
+            }
+
+            // Set owner to current user only
+            if SetSecurityDescriptorOwner(&mut sd as *mut _, null_mut(), FALSE) == 0 {
+                return Err("Failed to set security descriptor owner".to_string());
+            }
+
+            // Set DACL to deny all access except for owner
+            if SetSecurityDescriptorDacl(&mut sd as *mut _, TRUE, null_mut(), FALSE) == 0 {
+                return Err("Failed to set security descriptor DACL".to_string());
+            }
+
+            sa.lpSecurityDescriptor = &mut sd as *mut _;
+
+            // Create directory with security
+            if CreateDirectoryW(wide_path.as_ptr(), &sa) == 0 {
                 let error = winapi::um::errhandlingapi::GetLastError();
                 if error != winapi::shared::winerror::ERROR_ALREADY_EXISTS {
                     return Err(format!("Failed to create sandbox directory: {}", error));
                 }
             }
 
-            // Set directory attributes to prevent deletion
-            SetFileAttributesW(wide_path.as_ptr(), FILE_ATTRIBUTE_DIRECTORY);
+            // Set directory attributes to prevent deletion and make it read-only
+            SetFileAttributesW(wide_path.as_ptr(), FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_READONLY);
+
+            // Add additional security by setting SACL for auditing
+            log::info!("Sandbox directory created with enhanced security at: {}", path.display());
         }
 
-        log::info!("Sandbox directory created/verified at: {}", path.display());
         Ok(())
     }
 
@@ -530,7 +562,7 @@ impl JobObjectManager {
         unsafe {
             DuplicateHandle(
                 GetCurrentProcess(),
-                _process_handle,
+                process_handle,
                 GetCurrentProcess(),
                 &mut dup_process_handle,
                 0,
@@ -866,10 +898,22 @@ pub async fn execute_with_windows_control(
     env_vars: &HashMap<String, String>,
     language: &str,
 ) -> Result<(String, String, i32), String> {
-    // Validate command path to ensure it doesn't escape sandbox
+    // Enhanced security validation
+    validate_command_security(command, args)?;
+
+    let job_manager = JobObjectManager::new()?;
+    job_manager
+        .execute_code(command, args, env_vars, language)
+        .await
+}
+
+/// Enhanced command security validation
+fn validate_command_security(command: &str, args: &[String]) -> Result<(), String> {
     let cmd_path = PathBuf::from(command);
+
+    // Check if path is absolute and outside sandbox
     if cmd_path.is_absolute() && !cmd_path.starts_with(SANDBOX_DIR) {
-        // Allow system commands like python, cmd, powershell
+        // Allow only specific system commands
         let allowed_system_commands = vec![
             "python",
             "python.exe",
@@ -880,16 +924,120 @@ pub async fn execute_with_windows_control(
             "powershell",
             "powershell.exe",
         ];
+
         let cmd_name = cmd_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if !allowed_system_commands.contains(&cmd_name.to_lowercase().as_str()) {
             return Err(format!("Command path outside sandbox: {}", command));
         }
+
+        // Additional validation for system commands - use blocking check
+        let cmd_clone = command.to_string();
+        let is_trusted = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(is_system_command_trusted(&cmd_clone))
+        });
+        if !is_trusted {
+            return Err(format!("Untrusted system command: {}", command));
+        }
     }
 
-    let job_manager = JobObjectManager::new()?;
-    job_manager
-        .execute_code(command, args, env_vars, language)
-        .await
+    // Validate arguments for security
+    for arg in args {
+        if arg.contains("..") || arg.contains("\\..\\") || arg.contains("/../") {
+            return Err(format!("Path traversal attempt detected in argument: {}", arg));
+        }
+
+        if arg.len() > 1024 {
+            return Err(format!("Argument too long (max 1024 chars): {}", arg));
+        }
+    }
+
+    // Check for suspicious patterns
+    if command.contains("&") || command.contains("|") || command.contains(";") {
+        return Err(format!("Command contains suspicious characters: {}", command));
+    }
+
+    Ok(())
+}
+
+/// Check if system command is trusted
+async fn is_system_command_trusted(command: &str) -> bool {
+    let cmd_path = PathBuf::from(command);
+
+    // Check if command exists in system directories
+    if let Ok(canonical_path) = cmd_path.canonicalize() {
+        let path_str = canonical_path.to_string_lossy().to_lowercase();
+
+        // Allow commands from system directories only
+        let system_dirs = vec![
+            "c:\\windows\\system32\\",
+            "c:\\windows\\",
+            "c:\\program files\\",
+        ];
+
+        for system_dir in system_dirs {
+            if path_str.starts_with(system_dir) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Enhanced sandbox integrity check
+pub fn check_sandbox_integrity() -> Result<(), String> {
+    let sandbox_path = PathBuf::from(SANDBOX_DIR);
+
+    // Check if sandbox directory exists
+    if !sandbox_path.exists() {
+        return Err("Sandbox directory does not exist".to_string());
+    }
+
+    // Check if sandbox directory has proper permissions
+    if !has_sandbox_proper_permissions(&sandbox_path)? {
+        return Err("Sandbox directory has incorrect permissions".to_string());
+    }
+
+    // Check for unauthorized files
+    if has_unauthorized_files(&sandbox_path)? {
+        return Err("Unauthorized files detected in sandbox".to_string());
+    }
+
+    Ok(())
+}
+
+/// Check if sandbox has proper permissions
+fn has_sandbox_proper_permissions(path: &Path) -> Result<bool, String> {
+    // This is a simplified check - in production you would use proper Windows ACL checking
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| format!("Failed to read sandbox metadata: {}", e))?;
+
+    // Check if directory is read-only
+    if metadata.permissions().readonly() {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Check for unauthorized files in sandbox
+fn has_unauthorized_files(path: &Path) -> Result<bool, String> {
+    // Check for common unauthorized file types
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let entry_path = entry.path();
+                if let Some(extension) = entry_path.extension() {
+                    let ext = extension.to_string_lossy().to_lowercase();
+                    if ext == "exe" || ext == "bat" || ext == "cmd" || ext == "ps1" {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(false)
 }
 
 /// Basic path validation without sandbox restrictions

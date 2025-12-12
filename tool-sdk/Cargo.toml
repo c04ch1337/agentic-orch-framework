@@ -33,6 +33,8 @@ backoff = { version = "0.4", features = ["tokio"] }
 once_cell = "1.20"
 url = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+uuid = { version = "1.6", features = ["v4"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

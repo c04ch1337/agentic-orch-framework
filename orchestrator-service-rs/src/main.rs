@@ -253,6 +253,8 @@ Error: {}",
     Ok(Response::new(agi_response))
 }
 
+}
+
 // 4. Define the Orchestrator Server Structure
 // This struct will hold the state and implement the gRPC trait.
 /// Agent information returned from find_agent_by_capability

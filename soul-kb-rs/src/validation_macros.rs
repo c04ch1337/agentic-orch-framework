@@ -3,15 +3,13 @@
 /// Macro for validating input against multiple validation rules
 #[macro_export]
 macro_rules! validate {
-    ($input:expr, $($validator:expr),+) => {{
-        let mut result = Ok(());
+    ($input:expr, $($validator:expr),+ $(,)?) => {{
+        // Validators are expected to be functions/closures returning `ValidationResult<()>`.
+        // They should accept the same input type as `$input`.
         $(
-            if let Err(e) = $validator.validate(&$input) {
-                result = Err(e);
-                break;
-            }
+            $validator($input)?;
         )+
-        result
+        Ok(())
     }};
 }
 

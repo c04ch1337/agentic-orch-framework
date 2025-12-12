@@ -18,7 +18,7 @@ use anyhow::{Result, anyhow, Context};
 use tracing::{info, error, debug, warn};
 use async_trait::async_trait;
 
-use crate::storage::{StorageBackend, Entity};
+use crate::storage::{StorageBackend, StorageBackendExt, Entity};
 use crate::proto::auth_service::LogEventRequest;
 
 /// Security event types

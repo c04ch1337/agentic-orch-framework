@@ -287,6 +287,29 @@ pub struct FeaturesConfig {
     pub enable_auto_recovery: bool,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TelemetryConfig {
+    pub enabled: bool,
+    pub endpoint: String,
+    pub sample_rate: f32,
+    pub batch_size: usize,
+    pub flush_interval_secs: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConfigUpdateConfig {
+    pub enabled: bool,
+    pub poll_interval_secs: u64,
+    pub hot_reload: bool,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActionLedgerConfig {
+    pub enabled: bool,
+    pub retention_days: u32,
+    pub max_entries: usize,
+}
+
 impl PhoenixConfig {
     /// Load configuration from file
     pub fn load() -> Result<Arc<PhoenixConfig>, ConfigError> {

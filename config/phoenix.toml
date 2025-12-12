@@ -436,6 +436,9 @@ enable_auto_recovery = true
 # Enable telemetry collection
 enabled = true
 
+# Sampling rate for telemetry events (0.0 - 1.0)
+sample_rate = 1.0
+
 # Telemetry endpoint URL
 endpoint = "https://telemetry.phoenix-orch.example.com/api/v1/events"
 
@@ -460,6 +463,9 @@ max_cache_size_mb = 100
 [config_update]
 # Enable configuration updates
 enabled = true
+
+# Poll interval in seconds for checking for updates (alias used by some services)
+poll_interval_secs = 86400
 
 # Adapter download URL
 adapter_download_url = "https://updates.phoenix-orch.example.com/adapters"

@@ -1,0 +1,34 @@
+[package]
+name = "config-management-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Configuration management system with hot-reloading for Phoenix ORCH"
+license = "MIT"
+authors = ["Phoenix ORCH Team"]
+repository = "https://github.com/phoenix-orch/config-management-rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+thiserror = "1.0"
+tracing = "0.1"
+notify = "6.1"
+notify-debouncer-full = "0.3"
+async-trait = "0.1"
+once_cell = "1.18"
+tempfile = "3.8"
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[features]
+default = []
+test-utils = []
+
+[lib]
+name = "config_management"
+path = "src/lib.rs"
+
+[package.metadata.docs.rs]
+all-features = true

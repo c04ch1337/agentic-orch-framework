@@ -7,7 +7,6 @@
 //! - Provides convenient Result type alias
 
 use std::fmt;
-use std::error::Error;
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -58,6 +57,22 @@ pub enum ServiceError {
     /// Unexpected or internal errors
     #[error("Internal error: {0}")]
     Internal(String),
+    
+    /// Resource not found errors
+    #[error("Not found: {0}")]
+    NotFound(String),
+    
+    /// Circuit breaker open errors
+    #[error("Circuit broken: {0}")]
+    CircuitBroken(String),
+    
+    /// External service errors
+    #[error("External service error: {0}")]
+    ExternalService(String),
+    
+    /// Unknown errors
+    #[error("Unknown error: {0}")]
+    Unknown(String),
     
     /// Errors with additional context
     #[error("{inner}")]
@@ -118,6 +133,26 @@ impl ServiceError {
         ServiceError::Internal(message.into())
     }
     
+    /// Create a not found error
+    pub fn not_found(message: impl Into<String>) -> Self {
+        ServiceError::NotFound(message.into())
+    }
+    
+    /// Create a circuit broken error
+    pub fn circuit_broken(message: impl Into<String>) -> Self {
+        ServiceError::CircuitBroken(message.into())
+    }
+    
+    /// Create an external service error
+    pub fn external_service(message: impl Into<String>) -> Self {
+        ServiceError::ExternalService(message.into())
+    }
+    
+    /// Create an unknown error
+    pub fn unknown(message: impl Into<String>) -> Self {
+        ServiceError::Unknown(message.into())
+    }
+    
     /// Add context to an existing error
     pub fn with_context(self, context: ErrorContext) -> Self {
         ServiceError::WithContext {
@@ -163,6 +198,7 @@ impl ServiceError {
             ServiceError::Network(_) => true,
             ServiceError::Timeout(_) => true,
             ServiceError::RateLimit(_) => true,
+            ServiceError::CircuitBroken(_) => true,
             ServiceError::WithContext { inner, .. } => inner.is_retryable(),
             _ => false,
         }

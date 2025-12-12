@@ -19,7 +19,7 @@ use regex::Regex;
 use log::{debug, error, warn, info};
 use chrono::{DateTime, Utc};
 
-use crate::storage::{StorageBackend, Entity};
+use crate::storage::{StorageBackend, StorageBackendExt, Entity};
 
 /// Permission defines an action that can be performed on a resource
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

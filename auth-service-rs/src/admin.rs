@@ -23,7 +23,7 @@ use crate::certificates::{CertificateManager, CertificateType};
 use crate::jwt::TokenManager;
 use crate::audit;
 use crate::delegation::TokenDelegator;
-use crate::storage::{StorageBackend, Entity};
+use crate::storage::{StorageBackend, StorageBackendExt, Entity};
 
 // User entity for admin API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1303,60 +1303,5 @@ impl AdminManager {
     }
 }
 
-// Convert internal user model to proto response
-impl From<User> for user_response::User {
-    fn from(user: User) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            email: user.email,
-            roles: Vec::new(), // Roles need to be populated separately
-            status: user.status.into(),
-            created_at: user.created_at,
-            updated_at: user.updated_at,
-            last_login: user.last_login.unwrap_or(0),
-        }
-    }
-}
-
-// Convert internal role model to proto response
-impl From<Role> for role_response::Role {
-    fn from(role: Role) -> Self {
-        // Convert permissions to string format
-        let permissions: Vec<String> = role.permissions.iter()
-            .flat_map(|p| {
-                p.actions.iter().map(move |a| {
-                    format!("{}:{}", p.resource_pattern, a)
-                })
-            })
-            .collect();
-        
-        Self {
-            id: role.id,
-            name: role.name,
-            description: role.description,
-            permissions,
-            users: Vec::new(), // Users need to be populated separately
-            is_system_role: role.metadata.get("system_role").map_or(false, |v| v == "true"),
-            created_at: role.created_at.timestamp(),
-            updated_at: role.updated_at.timestamp(),
-        }
-    }
-}
-
-// Convert internal service model to proto response
-impl From<Service> for service_response::Service {
-    fn from(service: Service) -> Self {
-        Self {
-            id: service.id,
-            name: service.name,
-            description: service.description,
-            roles: Vec::new(), // Roles need to be populated separately
-            status: service.status.into(),
-            allowed_redirect_urls: service.allowed_redirect_urls,
-            allowed_origins: service.allowed_origins,
-            created_at: service.created_at,
-            updated_at: service.updated_at,
-        }
-    }
-}
+// Note: Proto response conversions are handled in the gRPC service implementation
+// where the proto types are properly imported from the generated code.

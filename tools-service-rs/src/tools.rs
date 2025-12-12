@@ -14,6 +14,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use log::{info, warn};
+use tool_sdk::ServiceClient;
 
 use crate::tool_manager::{
     Capability, ParameterDefinition, Tool, ToolContext, ToolManagerError, ToolMetadata, ToolResult,
@@ -760,20 +761,19 @@ fn format_search_results_from_response(
 pub async fn register_all_tools() -> Result<(), ToolManagerError> {
     let tool_manager = TOOL_MANAGER.clone();
 
-    let tools: Vec<Box<dyn Tool>> = vec![
-        Box::new(ReadFileTool::new()),
-        Box::new(WriteFileTool::new()),
-        Box::new(ExecuteCodeTool::new()),
-        Box::new(WebSearchTool::new()),
+    let tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(ReadFileTool::new()),
+        Arc::new(WriteFileTool::new()),
+        Arc::new(ExecuteCodeTool::new()),
+        Arc::new(WebSearchTool::new()),
     ];
 
     for tool in tools {
-        tool_manager.register_tool(Arc::new(tool))?;
+        tool_manager.register_tool(tool)?;
     }
 
     info!("General-purpose tools registered successfully");
     Ok(())
-}
 
 #[cfg(test)]
 mod tests {

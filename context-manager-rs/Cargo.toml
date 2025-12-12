@@ -40,6 +40,9 @@ uuid = { version = "1.11", features = ["v4"] }
 
 # Telemetry
 telemetrist = { path = "../telemetrist-rs", package = "telemetrist-rs" }
+log = "0.4.29"
+env_logger = "0.11.8"
+dotenv = "0.15.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"

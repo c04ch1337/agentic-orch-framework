@@ -22,7 +22,7 @@ use rcgen::{Certificate, CertificateParams, DnType, DistinguishedName, IsCa, Key
 use x509_parser::parse_x509_certificate;
 use once_cell::sync::Lazy;
 
-use crate::storage::{StorageBackend, Entity};
+use crate::storage::{StorageBackend, StorageBackendExt, Entity};
 
 // Global instance for certificate management
 static CERTIFICATE_MANAGER: Lazy<RwLock<Option<Arc<CertificateManager>>>> = Lazy::new(|| {

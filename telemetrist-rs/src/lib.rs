@@ -81,10 +81,12 @@ impl TelemetristConfig {
             .unwrap_or_else(|_| "https://telemetry.phoenix-orch.example.com/api/v1/events".to_string());
 
         let batch_size = std::env::var("TELEMETRY_BATCH_SIZE")
+            .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(100);
 
         let flush_interval_secs = std::env::var("TELEMETRY_FLUSH_INTERVAL_SECS")
+            .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(60);
 
@@ -97,6 +99,7 @@ impl TelemetristConfig {
             .unwrap_or_else(|_| PathBuf::from("./data/telemetry/cache"));
 
         let max_cache_size_mb = std::env::var("TELEMETRY_MAX_CACHE_SIZE_MB")
+            .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(100);
 

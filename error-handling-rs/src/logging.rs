@@ -7,8 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::RwLock;
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use tracing::{Subscriber, Level};
-use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, Registry};
+use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer, Registry};
 use tracing_appender::rolling::RollingFileAppender;
 use tracing_appender::non_blocking::NonBlocking;
 use uuid::Uuid;
@@ -73,64 +72,109 @@ pub fn init_logging(config: Option<LoggingConfig>) -> Result<()> {
             EnvFilter::new(format!("{},warn", config.level))
         });
     
-    // Create subscriber with multiple layers
-    let subscriber = Registry::default().with(filter);
-    
-    // Attach an appropriate formatting layer based on configuration. We build
-    // distinct layers for JSON vs text output rather than trying to store them
-    // behind a single concrete type.
-    let subscriber = if config.json_format {
-        let json_layer = fmt::layer()
-            .json()
-            .flatten_event(true)
-            .with_current_span(true)
-            .with_target(true)
-            .with_span_list(true);
-    
-        // Note: additional structured fields such as service name and correlation
-        // ID are attached at call sites (e.g. in `log_structured_error`) rather
-        // than via a custom `with_context` hook on the subscriber layer, which
-        // is not supported by `tracing-subscriber`'s `fmt::Layer`.
-        subscriber.with(json_layer)
-    } else {
-        let text_layer = fmt::layer()
-            .with_target(true)
-            .with_thread_ids(true)
-            .with_thread_names(true);
-    
-        subscriber.with(text_layer)
-    };
-    
-    // Add file output if configured
-    let subscriber = if config.file_output {
-        if let Some(log_dir) = config.log_dir {
-            let file_appender = RollingFileAppender::new(
-                tracing_appender::rolling::Rotation::DAILY,
-                log_dir,
-                format!("{}.log", config.service_name),
-            );
-            
-            let (non_blocking, _guard) = NonBlocking::new(file_appender);
-            
-            // Keep the guard alive for the lifetime of the program
-            // This is important to ensure logs are written properly
-            Box::leak(Box::new(_guard));
-            
-            let file_layer = fmt::layer()
-                .with_writer(non_blocking)
-                .with_ansi(false);
+    // Build and set subscriber based on configuration
+    // We use separate branches to avoid type mismatch issues with boxed layers
+    if config.json_format {
+        if config.file_output {
+            if let Some(log_dir) = config.log_dir {
+                let file_appender = RollingFileAppender::new(
+                    tracing_appender::rolling::Rotation::DAILY,
+                    log_dir,
+                    format!("{}.log", config.service_name),
+                );
+                let (non_blocking, guard) = NonBlocking::new(file_appender);
+                Box::leak(Box::new(guard));
                 
-            subscriber.with(file_layer)
+                let file_layer = fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_ansi(false);
+                
+                let fmt_layer = fmt::layer()
+                    .json()
+                    .flatten_event(true)
+                    .with_current_span(true)
+                    .with_target(true)
+                    .with_span_list(true);
+                
+                Registry::default()
+                    .with(filter)
+                    .with(fmt_layer)
+                    .with(file_layer)
+                    .init();
+            } else {
+                let fmt_layer = fmt::layer()
+                    .json()
+                    .flatten_event(true)
+                    .with_current_span(true)
+                    .with_target(true)
+                    .with_span_list(true);
+                
+                Registry::default()
+                    .with(filter)
+                    .with(fmt_layer)
+                    .init();
+            }
         } else {
-            subscriber
+            let fmt_layer = fmt::layer()
+                .json()
+                .flatten_event(true)
+                .with_current_span(true)
+                .with_target(true)
+                .with_span_list(true);
+            
+            Registry::default()
+                .with(filter)
+                .with(fmt_layer)
+                .init();
         }
     } else {
-        subscriber
-    };
-    
-    // Set the subscriber as the global default
-    tracing::subscriber::set_global_default(subscriber)
-        .map_err(|e| Error::new(ErrorKind::Initialization, format!("Failed to set global subscriber: {}", e)))?;
+        if config.file_output {
+            if let Some(log_dir) = config.log_dir {
+                let file_appender = RollingFileAppender::new(
+                    tracing_appender::rolling::Rotation::DAILY,
+                    log_dir,
+                    format!("{}.log", config.service_name),
+                );
+                let (non_blocking, guard) = NonBlocking::new(file_appender);
+                Box::leak(Box::new(guard));
+                
+                let file_layer = fmt::layer()
+                    .with_writer(non_blocking)
+                    .with_ansi(false);
+                
+                let fmt_layer = fmt::layer()
+                    .with_target(true)
+                    .with_thread_ids(true)
+                    .with_thread_names(true);
+                
+                Registry::default()
+                    .with(filter)
+                    .with(fmt_layer)
+                    .with(file_layer)
+                    .init();
+            } else {
+                let fmt_layer = fmt::layer()
+                    .with_target(true)
+                    .with_thread_ids(true)
+                    .with_thread_names(true);
+                
+                Registry::default()
+                    .with(filter)
+                    .with(fmt_layer)
+                    .init();
+            }
+        } else {
+            let fmt_layer = fmt::layer()
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true);
+            
+            Registry::default()
+                .with(filter)
+                .with(fmt_layer)
+                .init();
+        }
+    }
         
     // Mark logging as initialized
     LOGGING_INITIALIZED.store(true, Ordering::SeqCst);
@@ -286,37 +330,37 @@ pub fn log_structured_error(error: &Error) {
         },
     }
 }
-impl TryFrom&lt;config::Config&gt; for LoggingConfig {
+impl TryFrom<config::Config> for LoggingConfig {
     type Error = config::ConfigError;
 
-    fn try_from(cfg: config::Config) -&gt; std::result::Result&lt;Self, Self::Error&gt; {
+    fn try_from(cfg: config::Config) -> std::result::Result<Self, Self::Error> {
         // Start from defaults and selectively override from the provided config.
         let mut base = LoggingConfig::default();
 
-        if let Ok(level) = cfg.get::&lt;String&gt;("logging.level") {
+        if let Ok(level) = cfg.get::<String>("logging.level") {
             base.level = level;
         }
-        if let Ok(service_name) = cfg.get::&lt;String&gt;("logging.service_name") {
+        if let Ok(service_name) = cfg.get::<String>("logging.service_name") {
             base.service_name = service_name;
         }
-        if let Ok(file_output) = cfg.get::&lt;bool&gt;("logging.file_output") {
+        if let Ok(file_output) = cfg.get::<bool>("logging.file_output") {
             base.file_output = file_output;
         }
-        if let Ok(log_dir) = cfg.get::&lt;String&gt;("logging.log_dir") {
+        if let Ok(log_dir) = cfg.get::<String>("logging.log_dir") {
             base.log_dir = Some(log_dir);
         }
-        if let Ok(json_format) = cfg.get::&lt;bool&gt;("logging.json_format") {
+        if let Ok(json_format) = cfg.get::<bool>("logging.json_format") {
             base.json_format = json_format;
         }
-        if let Ok(include_source_code) = cfg.get::&lt;bool&gt;("logging.include_source_code") {
+        if let Ok(include_source_code) = cfg.get::<bool>("logging.include_source_code") {
             base.include_source_code = include_source_code;
         }
-        if let Ok(enable_tracing) = cfg.get::&lt;bool&gt;("logging.enable_tracing") {
+        if let Ok(enable_tracing) = cfg.get::<bool>("logging.enable_tracing") {
             base.enable_tracing = enable_tracing;
         }
-        if let Ok(custom) = cfg.get::&lt;serde_json::Value&gt;("logging.custom_fields") {
+        if let Ok(custom) = cfg.get::<serde_json::Value>("logging.custom_fields") {
             if let serde_json::Value::Object(map) = custom {
-                base.custom_fields = map;
+                base.custom_fields = map.into_iter().collect();
             }
         }
 

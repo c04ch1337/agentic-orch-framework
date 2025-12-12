@@ -5,7 +5,8 @@ mod validation_macros;
 
 // Re-export validation functions and macros
 pub use validation::*;
-pub use validation_macros::{validate, validate_length, validate_range};
+// These macros are `#[macro_export]`-ed and live at the crate root.
+pub use crate::{validate, validate_length, validate_range};
 
 // Re-export core types
 pub use crate::agi_core::{
@@ -14,13 +15,7 @@ pub use crate::agi_core::{
 };
 
 // Re-export validation types
-pub use input_validation_rs::{
-    ValidationResult,
-    ValidationError,
-    sanitizers::StringSanitizer,
-    validators::{
-        numeric::NumericValidation,
-        security::SecurityValidation,
-        string::StringValidation,
-    },
-};
+pub use input_validation_rs::{ValidationError, ValidationResult};
+
+// Convenience re-exports for call sites
+pub use input_validation_rs::{sanitizers, validators};

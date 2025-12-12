@@ -42,6 +42,7 @@ impl ConfigUpdateConfig {
             .unwrap_or_else(|_| PathBuf::from("./certs/update_public_key.pem"));
 
         let update_check_interval_secs = std::env::var("CONFIG_UPDATE_CHECK_INTERVAL_SECS")
+            .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(86400); // 24 hours
 
@@ -95,7 +96,7 @@ impl ConfigUpdateService {
             .map_err(|e| ConfigUpdateError::Http(e.to_string()))?;
 
         let public_key = if config.signature_verification_enabled && config.public_key_path.exists() {
-            Some(fs::read(&config.public_key_path)
+            Some(std::fs::read(&config.public_key_path)
                 .map_err(|e| ConfigUpdateError::Io(format!("Failed to read public key: {}", e)))?)
         } else {
             None

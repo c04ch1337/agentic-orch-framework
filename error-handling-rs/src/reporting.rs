@@ -65,38 +65,38 @@ impl Default for ReporterConfig {
 impl TryFrom<config::Config> for ReporterConfig {
     type Error = config::ConfigError;
 
-    fn try_from(cfg: config::Config) -&gt; std::result::Result&lt;Self, Self::Error&gt; {
+    fn try_from(cfg: config::Config) -> std::result::Result<Self, Self::Error> {
         // Start with defaults and override from config where present.
         let mut base = ReporterConfig::default();
 
-        if let Ok(endpoint) = cfg.get::&lt;String&gt;("error_reporting.report_endpoint") {
+        if let Ok(endpoint) = cfg.get::<String>("error_reporting.report_endpoint") {
             base.report_endpoint = Some(endpoint);
         }
-        if let Ok(service_name) = cfg.get::&lt;String&gt;("error_reporting.service_name") {
+        if let Ok(service_name) = cfg.get::<String>("error_reporting.service_name") {
             base.service_name = service_name;
         }
-        if let Ok(environment) = cfg.get::&lt;String&gt;("error_reporting.environment") {
+        if let Ok(environment) = cfg.get::<String>("error_reporting.environment") {
             base.environment = environment;
         }
-        if let Ok(batch_size) = cfg.get::&lt;usize&gt;("error_reporting.batch_size") {
+        if let Ok(batch_size) = cfg.get::<usize>("error_reporting.batch_size") {
             base.batch_size = batch_size;
         }
-        if let Ok(flush_interval) = cfg.get::&lt;u64&gt;("error_reporting.flush_interval_secs") {
+        if let Ok(flush_interval) = cfg.get::<u64>("error_reporting.flush_interval_secs") {
             base.flush_interval_secs = flush_interval;
         }
-        if let Ok(record_metrics) = cfg.get::&lt;bool&gt;("error_reporting.record_metrics") {
+        if let Ok(record_metrics) = cfg.get::<bool>("error_reporting.record_metrics") {
             base.record_metrics = record_metrics;
         }
-        if let Ok(in_memory_limit) = cfg.get::&lt;usize&gt;("error_reporting.in_memory_limit") {
+        if let Ok(in_memory_limit) = cfg.get::<usize>("error_reporting.in_memory_limit") {
             base.in_memory_limit = in_memory_limit;
         }
-        if let Ok(rate_limit) = cfg.get::&lt;usize&gt;("error_reporting.rate_limit") {
+        if let Ok(rate_limit) = cfg.get::<usize>("error_reporting.rate_limit") {
             base.rate_limit = rate_limit;
         }
-        if let Ok(token) = cfg.get::&lt;String&gt;("error_reporting.auth_token") {
+        if let Ok(token) = cfg.get::<String>("error_reporting.auth_token") {
             base.auth_token = Some(token);
         }
-        if let Ok(tags) = cfg.get::&lt;std::collections::HashMap&lt;String, String&gt;&gt;("error_reporting.tags") {
+        if let Ok(tags) = cfg.get::<std::collections::HashMap<String, String>>("error_reporting.tags") {
             base.tags = tags;
         }
 

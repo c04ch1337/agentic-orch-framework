@@ -435,9 +435,9 @@ impl FallbackStrategy {
     pub async fn with_fallback<F1, Fut1, F2, Fut2, T>(&self, operation_name: &str, primary: F1, fallback: F2) -> Result<T>
     where
         F1: FnOnce() -> Fut1,
-        Fut1: Future<Output = Result<T>>,
-        F2: FnOnce() -> Fut2,
-        Fut2: Future<Output = Result<T>>,
+        Fut1: Future<Output = Result<T>> + Send + 'static,
+        F2: FnOnce() -> Fut2 + Send + 'static,
+        Fut2: Future<Output = Result<T>> + Send + 'static,
     {
         let fallback_fn = Box::new(move || Box::pin(fallback()) as Pin<Box<dyn Future<Output = Result<T>> + Send>>);
         
@@ -722,8 +722,8 @@ impl Default for FallbackStrategy {
 pub async fn with_fallback<F, Fut, T, FB>(operation_name: &str, primary: F, fallback: FB) -> Result<T>
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<T>>,
-    FB: FnOnce() -> Result<T>,
+    Fut: Future<Output = Result<T>> + Send + 'static,
+    FB: FnOnce() -> Result<T> + Send + 'static,
 {
     let strategy = FallbackStrategy::default();
     
@@ -1005,9 +1005,9 @@ impl DegradedMode {
     ) -> Result<T>
     where
         F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<T>>,
-        FB: FnOnce() -> FBFut,
-        FBFut: Future<Output = Result<T>>,
+        Fut: Future<Output = Result<T>> + Send + 'static,
+        FB: FnOnce() -> FBFut + Send + 'static,
+        FBFut: Future<Output = Result<T>> + Send + 'static,
     {
         // Check if mode is active
         let is_active = self.is_active(mode);

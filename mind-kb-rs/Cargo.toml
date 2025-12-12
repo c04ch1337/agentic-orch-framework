@@ -24,3 +24,4 @@ qdrant-client = "1.9.0"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"
+protoc-bin-vendored = "3.0.0"

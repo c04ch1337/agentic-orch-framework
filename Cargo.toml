@@ -34,6 +34,7 @@ members = [
     "telemetrist-rs",
     "config-update-rs",
     "federated-learning-rs",
+    "config-management-rs",
 ]
 
 [profile.release]

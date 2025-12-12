@@ -33,7 +33,7 @@ static SIGNING_KEYS: Lazy<RwLock<HashMap<String, SigningKey>>> = Lazy::new(|| {
 });
 
 // JWT Claims structure
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: String,            // Subject (user_id or service_id)
     pub iss: String,            // Issuer

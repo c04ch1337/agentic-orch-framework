@@ -1,6 +1,7 @@
 // api-gateway-rs/src/main.rs
 // API Gateway - REST to gRPC Translation Layer with Enhanced Validation
-// Port 8000 - HTTP/REST entry point for external clients
+// Port 5001 (default) or 8000 - HTTP/REST entry point for external clients
+// Configure via API_GATEWAY_PORT environment variable
 //
 // Implements:
 // - Secure API key management and token-based authentication
@@ -8,6 +9,7 @@
 // - Request payload size limits
 // - Schema-based request validation
 // - Content-type validation and enforcement
+// - Server-Sent Events (SSE) for real-time vitals
 
 use axum::{
     body::{to_bytes, Body, Bytes},
@@ -15,11 +17,17 @@ use axum::{
     http::header::{HeaderMap, AUTHORIZATION, CONTENT_TYPE},
     http::StatusCode,
     middleware::{self, Next},
-    response::IntoResponse,
-    response::Response,
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse,
+        Response,
+    },
     routing::{get, post},
     BoxError, Json, Router,
 };
+use futures_util::stream::{self, Stream};
+use std::convert::Infallible;
+use tokio::time::{interval, Duration};
 use config_rs::{get_bind_address, get_client_address, get_service_port};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
@@ -448,9 +456,58 @@ async fn root_handler() -> impl IntoResponse {
         "version": "1.0.0",
         "endpoints": [
             "GET /health",
-            "POST /api/v1/execute"
+            "POST /api/v1/execute",
+            "GET /api/v1/sse/vitals"
         ]
     }))
+}
+
+/// GET /api/v1/sse/vitals - SSE endpoint for system vitals
+async fn sse_vitals_handler(
+    State(state): State<Arc<AppState>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let state_clone = state.clone();
+    
+    let stream = stream::unfold((), move |_| {
+        let state = state_clone.clone();
+        async move {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            
+            let uptime = START_TIME.elapsed().as_secs() as i64;
+            
+            let secrets_healthy = {
+                let secrets_guard = state.secrets_client.lock().await;
+                if let Some(secrets) = &*secrets_guard {
+                    secrets.is_healthy().await
+                } else {
+                    false
+                }
+            };
+            
+            let auth_healthy = is_auth_healthy().await;
+            
+            let vitals = serde_json::json!({
+                "timestamp": chrono::Utc::now().to_rfc3339(),
+                "uptime_seconds": uptime,
+                "secrets_healthy": secrets_healthy,
+                "auth_healthy": auth_healthy,
+                "status": if secrets_healthy && auth_healthy {
+                    "SERVING"
+                } else if !secrets_healthy && !auth_healthy {
+                    "CRITICAL"
+                } else {
+                    "DEGRADED"
+                }
+            });
+            
+            match Event::default().json_data(vitals) {
+                Ok(event) => Some((Ok(event), ())),
+                Err(_) => None,
+            }
+        }
+    });
+    
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 /// Load TLS configuration
@@ -550,8 +607,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Use standardized configuration for ports and addresses
-    let port = get_service_port("API_GATEWAY", 8000);
-    let addr = get_bind_address("API_GATEWAY", 8000);
+    // Default to 5001 per architecture, but allow override via env var
+    let default_port = env::var("API_GATEWAY_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(5001);
+    let port = get_service_port("API_GATEWAY", default_port);
+    let addr = get_bind_address("API_GATEWAY", default_port);
     let orchestrator_addr = get_client_address("ORCHESTRATOR", 50051, None);
 
     log::info!("Using API Gateway port: {}", port);
@@ -619,6 +681,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/health", get(health_handler))
         .route("/api/v1/execute", post(execute_handler))
         .route("/api/v1/token", get(generate_token_handler))
+        .route("/api/v1/sse/vitals", get(sse_vitals_handler))
         // Add Phoenix auth and rate limiting first
         .layer(middleware::from_fn(phoenix_auth_interceptor))
         .layer(middleware::from_fn(tower_governor_rate_limiter))

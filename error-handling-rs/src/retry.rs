@@ -480,14 +480,14 @@ impl RetryPolicy {
                     Ok(result) => result,
                     Err(_) => {
                         // Timeout occurred
-                        let timeout_error = Error::new(
+                        let mut timeout_error = Error::new(
                             ErrorKind::Timeout,
                             format!("Operation '{}' timed out after {:?}", operation_name, timeout_duration)
                         ).context("operation", operation_name)
                          .context("timeout_ms", timeout_duration.as_millis());
                         
                         if let Some(correlation_id) = correlation_id {
-                            timeout_error.context("correlation_id", correlation_id);
+                            timeout_error = timeout_error.context("correlation_id", correlation_id);
                         }
                         
                         error!(

@@ -9,8 +9,7 @@ use regex_automata::dfa::regex::Regex as DfaRegex;
 use std::time::{Duration, Instant};
 
 // Import our enhanced validation module
-mod validation;
-use validation::{detect_threats, sanitize_input, validate_content};
+use crate::validation::{detect_threats, sanitize_input, validate_content};
 
 /// Security threat patterns organized by category
 lazy_static! {
@@ -213,7 +212,6 @@ pub fn detect_threat(text: &str) -> ThreatDetection {
                 };
             }
         }
-    }
     }
 
     // No threats detected

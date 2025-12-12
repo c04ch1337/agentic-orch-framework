@@ -20,6 +20,10 @@ use windows_service::{
     service_dispatcher,
 };
 
+// Import configuration module
+mod config;
+use config::{init_config_manager, start_config_monitoring};
+
 const SERVICE_NAME: &str = "PhoenixExecutorService";
 const SERVICE_DISPLAY_NAME: &str = "Phoenix Executor Service";
 const SERVICE_DESCRIPTION: &str = "Phoenix ORCH Native Execution Service";
@@ -38,6 +42,14 @@ use execution_logic::{
 mod windows_executor;
 
 static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
+
+// Import monitoring, performance, and security modules
+mod monitoring;
+mod performance;
+mod security;
+use monitoring::{init_monitoring, get_monitoring_stats};
+use performance::{init_performance_optimizer, get_performance_stats};
+use security::{init_security_manager, get_security_stats};
 
 pub mod agi_core {
     tonic::include_proto!("agi_core");
@@ -126,16 +138,54 @@ extern "system" fn ffi_service_main(_: u32, _: *mut *mut u16) {
 
     log::info!("Starting PHOENIX ORCH Executor Service - Windows Native Edition");
 
+    // Initialize monitoring system
+    init_monitoring();
+    log::info!("Enhanced monitoring system initialized");
+
+    // Initialize performance optimizer
+    init_performance_optimizer(performance::PerformanceConfig::default());
+    log::info!("Performance optimization system initialized");
+
+    // Initialize security manager
+    init_security_manager(security::SecurityConfig::default());
+    log::info!("Comprehensive security system initialized");
+
     // Check if running on Windows and initialize
     #[cfg(target_os = "windows")]
     {
         log::info!("Windows platform detected - Using native Job Object control");
 
-        // Create sandbox directory if it doesn't exist
-        let sandbox_path = std::path::Path::new(r"C:\phoenix_sandbox");
-        if !sandbox_path.exists() {
-            std::fs::create_dir_all(sandbox_path).expect("Failed to create sandbox directory");
-            log::info!("Created sandbox directory at: {}", sandbox_path.display());
+        // Initialize configuration system
+        if let Err(e) = init_config_manager().await {
+            log::error!("Failed to initialize configuration manager: {}", e);
+            // Fallback to default sandbox directory
+            let sandbox_path = std::path::Path::new(r"C:\phoenix_sandbox");
+            if !sandbox_path.exists() {
+                std::fs::create_dir_all(sandbox_path).expect("Failed to create sandbox directory");
+                log::info!("Created fallback sandbox directory at: {}", sandbox_path.display());
+            }
+        } else {
+            // Start configuration monitoring
+            start_config_monitoring().await;
+
+            // Get sandbox directory from configuration
+            let config = config::get_config().await;
+            let sandbox_path = std::path::Path::new(&config.sandbox_dir);
+
+            // Create sandbox directory if it doesn't exist
+            if !sandbox_path.exists() {
+                std::fs::create_dir_all(sandbox_path).expect("Failed to create sandbox directory");
+                log::info!("Created sandbox directory at: {}", sandbox_path.display());
+            }
+
+            // Perform sandbox integrity check
+            match check_sandbox_integrity() {
+                Ok(_) => log::info!("Sandbox integrity check passed"),
+                Err(e) => {
+                    log::error!("Sandbox integrity check failed: {}", e);
+                    // In production, you might want to fail startup here
+                }
+            }
         }
     }
 
@@ -258,21 +308,60 @@ impl HealthService for ExecutorServer {
         let uptime = START_TIME.elapsed().as_secs() as i64;
         let mut dependencies = HashMap::new();
 
+        // Check configuration health
+        let config_healthy = config::check_config_health().await;
+        let config_status = if config_healthy { "HEALTHY" } else { "UNHEALTHY" };
+
+        // Get monitoring health status
+        let monitoring_stats = get_monitoring_stats().await;
+        let monitoring_healthy = matches!(
+            monitoring_stats.health_status.overall_health,
+            monitoring::HealthLevel::Healthy
+        );
+        let monitoring_status = if monitoring_healthy {
+            "HEALTHY"
+        } else {
+            "UNHEALTHY"
+        };
+
+        // Determine overall health
+        let overall_healthy = config_healthy && monitoring_healthy;
+
         #[cfg(target_os = "windows")]
         {
             dependencies.insert("windows_job_object".to_string(), "AVAILABLE".to_string());
             dependencies.insert("process_watchdog".to_string(), "AVAILABLE".to_string());
             dependencies.insert("sandbox_directory".to_string(), "CONFIGURED".to_string());
+            dependencies.insert("configuration".to_string(), config_status.to_string());
+            dependencies.insert("monitoring".to_string(), monitoring_status.to_string());
         }
 
         dependencies.insert("shell".to_string(), "AVAILABLE".to_string());
         dependencies.insert("input_simulation".to_string(), "AVAILABLE".to_string());
 
+        // Add monitoring metrics to dependencies
+        dependencies.insert(
+            "execution_health".to_string(),
+            format!("{:?}", monitoring_stats.health_status.overall_health),
+        );
+        dependencies.insert(
+            "total_executions".to_string(),
+            monitoring_stats.execution_stats.total_executions.to_string(),
+        );
+        dependencies.insert(
+            "active_processes".to_string(),
+            monitoring_stats.resource_metrics.active_processes.to_string(),
+        );
+
         Ok(Response::new(HealthResponse {
-            healthy: true,
+            healthy: overall_healthy,
             service_name: "executor-service-windows-native".to_string(),
             uptime_seconds: uptime,
-            status: "SERVING".to_string(),
+            status: if overall_healthy {
+                "SERVING"
+            } else {
+                "DEGRADED"
+            }.to_string(),
             dependencies,
         }))
     }

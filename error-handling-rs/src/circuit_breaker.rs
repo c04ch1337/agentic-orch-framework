@@ -255,7 +255,7 @@ impl CircuitBreaker {
     pub async fn execute<F, T, E>(&self, service_name: &str, operation: F) -> Result<T>
     where
         F: FnOnce() -> std::result::Result<T, E>,
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         // Check if the circuit is open
         if !self.is_allowed(service_name) {
@@ -291,7 +291,7 @@ impl CircuitBreaker {
     pub async fn execute_async<F, T, E>(&self, service_name: &str, operation: F) -> Result<T>
     where
         F: std::future::Future<Output = std::result::Result<T, E>>,
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         // Check if the circuit is open
         if !self.is_allowed(service_name) {
@@ -926,7 +926,7 @@ impl<'a> CircuitBreakerGuard<'a> {
     pub async fn execute<F, T, E>(&self, operation: F) -> Result<T>
     where
         F: FnOnce() -> std::result::Result<T, E>,
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         self.circuit_breaker.execute(&self.service_name, operation).await
     }
@@ -935,7 +935,7 @@ impl<'a> CircuitBreakerGuard<'a> {
     pub async fn execute_async<F, T, E>(&self, operation: F) -> Result<T>
     where
         F: std::future::Future<Output = std::result::Result<T, E>>,
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         self.circuit_breaker.execute_async(&self.service_name, operation).await
     }
@@ -948,7 +948,7 @@ pub async fn with_circuit_breaker<F, T, E>(
 ) -> Result<T>
 where
     F: FnOnce() -> std::result::Result<T, E>,
-    E: std::error::Error + 'static,
+    E: std::error::Error + Send + Sync + 'static,
 {
     CircuitBreaker::global().execute(service_name, operation).await
 }
@@ -960,7 +960,7 @@ pub async fn with_circuit_breaker_async<F, T, E>(
 ) -> Result<T>
 where
     F: std::future::Future<Output = std::result::Result<T, E>>,
-    E: std::error::Error + 'static,
+    E: std::error::Error + Send + Sync + 'static,
 {
     CircuitBreaker::global().execute_async(service_name, operation).await
 }

@@ -2,18 +2,12 @@
 // Input validation for Soul KB Service (ethics and values)
 
 use crate::agi_core::{CoreValue, EthicsCheckRequest, StoreValueRequest};
-use crate::validation_macros::{validate, validate_length, validate_range};
-use input_validation_rs::{
-    ValidationResult, ValidationError,
-    sanitizers::StringSanitizer,
-    validators::{
-        numeric::NumericValidation, security::SecurityValidation, string::StringValidation,
-    },
-};
+use input_validation_rs::{sanitizers, validators, ValidationError, ValidationResult};
 use std::collections::HashMap;
 
-// Re-export macros
-pub use crate::validation_macros::*;
+// Macros `validate!`, `validate_length!`, and `validate_range!` are defined in
+// [`soul-kb-rs/src/validation_macros.rs`](soul-kb-rs/src/validation_macros.rs:1)
+// and exported at the crate root via `#[macro_export]`.
 
 // Maximum allowed sizes
 const MAX_QUERY_LENGTH: usize = 2048; // 2KB for queries
@@ -26,24 +20,51 @@ const MAX_CONSTRAINT_LENGTH: usize = 2048;
 const MAX_ACTION_LENGTH: usize = 4096;
 const MIN_PRIORITY: i32 = 1;
 const MAX_PRIORITY: i32 = 4;
-const MIN_LIMIT: u64 = 1;
-const MAX_LIMIT: u64 = 50;
+const MIN_LIMIT: i32 = 1;
+const MAX_LIMIT: i32 = 50;
 const MAX_METADATA_ENTRIES: usize = 50;
 
+const KEY_PATTERN: &str = r"^[A-Za-z0-9_\.]+$";
+const IDENT_PATTERN: &str = r"^[A-Za-z0-9_]+$";
+
+fn no_code_injection_like(input: &str) -> ValidationResult<()> {
+    // There is no dedicated `no_code_injection()` in `input-validation-rs`.
+    // Approximate it by blocking common code-execution primitives.
+    validators::security::no_ssti(input)?;
+    validators::security::no_format_string_vulnerabilities(input)?;
+    validators::security::no_prototype_pollution(input)?;
+    Ok(())
+}
+
+fn sanitize_plaintext(input: &str) -> String {
+    // Normalize and strip any HTML; intended for stored/displayed text fields.
+    let html_stripped = sanitizers::html::sanitize_for_plaintext(input).sanitized;
+    sanitizers::string::standard_string_sanitize(&html_stripped).sanitized
+}
+
+fn sanitize_identifier(input: &str) -> String {
+    // Normalize whitespace/control chars first, then aggressively keep only safe identifier chars.
+    let normalized = sanitizers::string::standard_string_sanitize(input).sanitized;
+    sanitizers::string::keep_allowed_chars(&normalized, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.")
+        .sanitized
+}
+
 /// Validates a query request
-pub fn validate_query(query: &str, limit: u64) -> ValidationResult<()> {
+pub fn validate_query(query: &str, limit: i32) -> ValidationResult<()> {
     // Validate query length
-    validate_length!(query, MAX_QUERY_LENGTH)?;
+    crate::validate_length!(query, MAX_QUERY_LENGTH)?;
 
     // Validate query content
-    validate!(query,
-        StringValidation::not_empty(),
-        SecurityValidation::no_code_injection(),
-        SecurityValidation::no_sql_injection()
+    crate::validate!(
+        query,
+        validators::string::not_empty,
+        no_code_injection_like,
+        validators::security::no_sql_injection,
+        validators::security::no_xss,
     )?;
 
     // Validate limit range
-    validate_range!(limit, MIN_LIMIT, MAX_LIMIT)?;
+    crate::validate_range!(limit, MIN_LIMIT, MAX_LIMIT)?;
 
     Ok(())
 }
@@ -51,18 +72,19 @@ pub fn validate_query(query: &str, limit: u64) -> ValidationResult<()> {
 /// Validates a key for retrieval or storage
 pub fn validate_key(key: &str) -> ValidationResult<String> {
     // Validate key length
-    validate_length!(key, MAX_KEY_LENGTH)?;
+    crate::validate_length!(key, MAX_KEY_LENGTH)?;
 
     // Validate key content
-    validate!(key,
-        StringValidation::not_empty(),
-        StringValidation::alphanumeric_with_underscore_and_dots(),
-        SecurityValidation::no_path_traversal(),
-        SecurityValidation::no_code_injection()
+    crate::validate!(
+        key,
+        validators::string::not_empty,
+        |s| validators::string::matches_pattern(s, KEY_PATTERN),
+        validators::security::no_path_traversal,
+        no_code_injection_like,
     )?;
 
     // Sanitize for safe usage
-    Ok(StringSanitizer::sanitize_identifier(key))
+    Ok(sanitize_identifier(key))
 }
 
 /// Validates and sanitizes value data for storage
@@ -87,14 +109,15 @@ pub fn validate_value(value: &[u8]) -> ValidationResult<Vec<u8>> {
     // If it's a text value, attempt to validate it as UTF-8
     if let Ok(text) = std::str::from_utf8(value) {
         // Validate text content
-        validate!(text,
-            SecurityValidation::no_code_injection(),
-            SecurityValidation::no_command_injection(),
-            SecurityValidation::no_script_tags()
+        crate::validate!(
+            text,
+            no_code_injection_like,
+            validators::security::no_command_injection,
+            validators::security::no_xss,
         )?;
 
         // Return sanitized text as bytes
-        return Ok(StringSanitizer::sanitize(text).into_bytes());
+        return Ok(sanitize_plaintext(text).into_bytes());
     }
 
     // For binary data, just verify it's within size limits
@@ -121,24 +144,26 @@ pub fn validate_filters(
     // Validate each filter key-value pair
     for (key, value) in filters {
         // Validate key and value
-        validate_length!(key, 64)?;
-        validate_length!(value, 256)?;
+        crate::validate_length!(key, 64)?;
+        crate::validate_length!(value, 256)?;
 
-        validate!(key,
-            StringValidation::not_empty(),
-            StringValidation::alphanumeric_with_underscore(),
-            SecurityValidation::no_code_injection()
+        crate::validate!(
+            key,
+            validators::string::not_empty,
+            |s| validators::string::matches_pattern(s, IDENT_PATTERN),
+            no_code_injection_like,
         )?;
 
-        validate!(value,
-            SecurityValidation::no_code_injection(),
-            SecurityValidation::no_sql_injection(),
-            SecurityValidation::no_script_tags()
+        crate::validate!(
+            value,
+            no_code_injection_like,
+            validators::security::no_sql_injection,
+            validators::security::no_xss,
         )?;
 
         // Sanitize and store
-        let sanitized_key = StringSanitizer::sanitize_identifier(key);
-        let sanitized_value = StringSanitizer::sanitize(value);
+        let sanitized_key = sanitize_identifier(key);
+        let sanitized_value = sanitize_plaintext(value);
 
         sanitized_filters.insert(sanitized_key, sanitized_value);
     }
@@ -172,46 +197,46 @@ pub fn validate_retrieve_request(
 
 /// Validates a value name
 pub fn validate_value_name(name: &str) -> ValidationResult<String> {
-    validate!(
+    crate::validate!(
         name,
-        StringValidation::not_empty(),
-        StringValidation::max_length(MAX_VALUE_NAME_LENGTH),
-        StringValidation::alphanumeric_with_underscore(),
-        SecurityValidation::no_code_injection()
+        validators::string::not_empty,
+        |s| validators::string::max_length(s, MAX_VALUE_NAME_LENGTH),
+        |s| validators::string::matches_pattern(s, IDENT_PATTERN),
+        no_code_injection_like,
     )?;
 
-    Ok(StringSanitizer::sanitize_identifier(name))
+    Ok(sanitize_identifier(name))
 }
 
 /// Validates a value description
 pub fn validate_description(description: &str) -> ValidationResult<String> {
-    validate!(
+    crate::validate!(
         description,
-        StringValidation::not_empty(),
-        StringValidation::max_length(MAX_VALUE_DESC_LENGTH),
-        SecurityValidation::no_code_injection(),
-        SecurityValidation::no_script_tags()
+        validators::string::not_empty,
+        |s| validators::string::max_length(s, MAX_VALUE_DESC_LENGTH),
+        no_code_injection_like,
+        validators::security::no_xss,
     )?;
 
-    Ok(StringSanitizer::sanitize(description))
+    Ok(sanitize_plaintext(description))
 }
 
 /// Validates a constraint string
 pub fn validate_constraint(constraint: &str) -> ValidationResult<String> {
-    validate!(
+    crate::validate!(
         constraint,
-        StringValidation::not_empty(),
-        StringValidation::max_length(MAX_CONSTRAINT_LENGTH),
-        SecurityValidation::no_code_injection(),
-        SecurityValidation::no_script_tags()
+        validators::string::not_empty,
+        |s| validators::string::max_length(s, MAX_CONSTRAINT_LENGTH),
+        no_code_injection_like,
+        validators::security::no_xss,
     )?;
 
-    Ok(StringSanitizer::sanitize(constraint))
+    Ok(sanitize_plaintext(constraint))
 }
 
 /// Validates a priority value
 pub fn validate_priority(priority: i32) -> ValidationResult<i32> {
-    validate_range!(priority, MIN_PRIORITY, MAX_PRIORITY)?;
+    crate::validate_range!(priority, MIN_PRIORITY, MAX_PRIORITY)?;
     Ok(priority)
 }
 
@@ -235,24 +260,26 @@ pub fn validate_value_metadata(
     // Validate each key-value pair
     for (key, value) in metadata {
         // Validate lengths
-        validate_length!(key, 64)?;
-        validate_length!(value, 256)?;
+        crate::validate_length!(key, 64)?;
+        crate::validate_length!(value, 256)?;
 
         // Validate content
-        validate!(key,
-            StringValidation::not_empty(),
-            StringValidation::alphanumeric_with_underscore(),
-            SecurityValidation::no_code_injection()
+        crate::validate!(
+            key,
+            validators::string::not_empty,
+            |s| validators::string::matches_pattern(s, IDENT_PATTERN),
+            no_code_injection_like,
         )?;
 
-        validate!(value,
-            SecurityValidation::no_code_injection(),
-            SecurityValidation::no_script_tags()
+        crate::validate!(
+            value,
+            no_code_injection_like,
+            validators::security::no_xss,
         )?;
 
         // Sanitize and store
-        let sanitized_key = StringSanitizer::sanitize_identifier(key);
-        let sanitized_value = StringSanitizer::sanitize(value);
+        let sanitized_key = sanitize_identifier(key);
+        let sanitized_value = sanitize_plaintext(value);
 
         sanitized_metadata.insert(sanitized_key, sanitized_value);
     }
@@ -267,14 +294,15 @@ pub fn validate_value_id(id: &str) -> ValidationResult<String> {
         return Ok(id.to_string());
     }
 
-    validate_length!(id, 64)?;
-    validate!(id,
-        StringValidation::alphanumeric_with_underscore_and_dots(),
-        SecurityValidation::no_path_traversal(),
-        SecurityValidation::no_code_injection()
+    crate::validate_length!(id, 64)?;
+    crate::validate!(
+        id,
+        |s| validators::string::matches_pattern(s, KEY_PATTERN),
+        validators::security::no_path_traversal,
+        no_code_injection_like,
     )?;
 
-    Ok(StringSanitizer::sanitize_identifier(id))
+    Ok(sanitize_identifier(id))
 }
 
 /// Comprehensive validation for a core value
@@ -336,14 +364,16 @@ pub fn validate_store_value_request(
 
 /// Validates an ethics check action
 pub fn validate_ethics_action(action: &str) -> ValidationResult<String> {
-    validate_length!(action, MAX_ACTION_LENGTH)?;
-    validate!(action,
-        StringValidation::not_empty(),
-        SecurityValidation::no_code_injection(),
-        SecurityValidation::no_command_injection()
+    crate::validate_length!(action, MAX_ACTION_LENGTH)?;
+    crate::validate!(
+        action,
+        validators::string::not_empty,
+        no_code_injection_like,
+        validators::security::no_command_injection,
+        validators::security::no_xss,
     )?;
 
-    Ok(StringSanitizer::sanitize(action))
+    Ok(sanitize_plaintext(action))
 }
 
 /// Validates an EthicsCheckRequest
@@ -365,6 +395,6 @@ pub fn validate_ethics_check_request(
 /// Validates a min priority filter
 pub fn validate_min_priority(min_priority: i32) -> ValidationResult<i32> {
     // 0 means no filter, 1-4 are valid priorities
-    validate_range!(min_priority, 0, MAX_PRIORITY)?;
+    crate::validate_range!(min_priority, 0, MAX_PRIORITY)?;
     Ok(min_priority)
 }
